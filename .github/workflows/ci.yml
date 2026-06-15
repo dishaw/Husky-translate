@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   python-quality:
     name: Python lint and format
@@ -74,7 +77,13 @@ jobs:
                 },
               },
               rules: {
-                "no-unused-vars": ["error", { "argsIgnorePattern": "^_" }],
+                "no-unused-vars": [
+                  "error",
+                  {
+                    "argsIgnorePattern": "^_",
+                    "varsIgnorePattern": "^_"
+                  }
+                ],
               },
             },
           ];
