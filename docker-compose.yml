@@ -1,0 +1,48 @@
+services:
+  web:
+    build:
+      context: .
+      args:
+        ODOO_BASE_IMAGE: ${ODOO_BASE_IMAGE:-odoo-translator:v1}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}
+        APT_MIRROR: ${APT_MIRROR:-}
+    container_name: odoo_trans_web
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8070:8069"
+    volumes:
+      - ./config:/etc/odoo
+      - ./myaddons:/mnt/extra-addons
+      - odoo-trans-web-data:/var/lib/odoo
+    environment:
+      - HOST=db
+      - PORT=5432
+      - USER=odoo
+      - PASSWORD=odoo
+      - TZ=Asia/Shanghai
+    command: odoo -c /etc/odoo/odoo.conf
+    restart: unless-stopped
+
+  db:
+    image: postgres:15
+    container_name: odoo_trans_db
+    environment:
+      - POSTGRES_DB=postgres
+      - POSTGRES_PASSWORD=odoo
+      - POSTGRES_USER=odoo
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - TZ=Asia/Shanghai
+    volumes:
+      - odoo-trans-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  odoo-trans-web-data:
+  odoo-trans-db-data:

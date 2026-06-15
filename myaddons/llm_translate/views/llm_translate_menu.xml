@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <!-- Translation Menu - between Chat (seq=10) and Prompts (seq=20) -->
+    <menuitem
+        id="menu_llm_translate"
+        name="Translation"
+        action="action_llm_translation_client"
+        parent="llm.menu_llm_root"
+        sequence="15"
+    />
+
+    <!-- Translation list under Configuration -->
+    <menuitem
+        id="menu_llm_translation_config"
+        name="Translations"
+        action="action_llm_translation"
+        parent="llm.menu_llm_config"
+        sequence="28"
+    />
+</odoo>

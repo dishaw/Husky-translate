@@ -1,0 +1,119 @@
+<odoo>
+
+    <!-- Remove Odoo brand promotion from website/portal footers. -->
+    <template id="remove_odoo_brand_promotion"
+              inherit_id="web.brand_promotion"
+              name="Remove Odoo brand promotion"
+              priority="99">
+        <xpath expr="//div[hasclass('o_brand_promotion')]" position="replace"/>
+    </template>
+
+    <!-- Remove the login card footer containing Manage Databases and Powered by Odoo. -->
+    <template id="remove_login_odoo_footer"
+              inherit_id="web.login_layout"
+              name="Remove login Odoo footer"
+              priority="99">
+        <xpath expr="//div[hasclass('card-body')]/div[hasclass('border-top')]" position="replace"/>
+    </template>
+
+    <!-- Replace default Odoo page title and favicon. -->
+    <template id="replace_default_odoo_layout_branding"
+              inherit_id="web.layout"
+              name="Replace default Odoo layout branding"
+              priority="99">
+        <xpath expr="//title" position="replace">
+            <title t-esc="title or 'TS'"/>
+        </xpath>
+        <xpath expr="//link[@rel='shortcut icon']" position="replace">
+            <link type="image/x-icon" rel="shortcut icon" t-att-href="x_icon or '/web/binary/company_logo'"/>
+        </xpath>
+    </template>
+
+    <!-- Guest user: skip avatar rendering (temp users can't access res.partner). -->
+    <template id="portal_layout_public_avatar"
+              inherit_id="portal.portal_layout"
+              name="Guest: skip avatar for public user"
+              priority="20">
+        <xpath expr="//img[hasclass('o_avatar')]" position="replace">
+            <t t-if="not request.env.user.is_temp_user">
+                <img class="o_avatar rounded"
+                     t-att-src="image_data_uri(user_id.partner_id.avatar_1024)"
+                     alt="Contact"/>
+            </t>
+            <t t-else="">
+                <img class="o_avatar rounded"
+                     src="/web/static/img/user_menu_avatar.png"
+                     alt="Guest"/>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- Temp user: hide "Edit information" link. -->
+    <template id="portal_side_content_hide_edit_for_temp"
+              inherit_id="portal.side_content"
+              name="Portal: hide Edit information for temp user"
+              priority="20">
+        <xpath expr="//a[@href='/my/account']" position="replace">
+            <t t-if="not request.env.user.is_temp_user">
+                <a role="button" href="/my/account" class="btn btn-link p-0 mt-3">
+                    <i class="fa fa-pencil"/> Edit information
+                </a>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- Portal home: add AI Translator entry for temp users. -->
+    <template id="portal_home_add_ai_translator"
+              inherit_id="portal.portal_my_home"
+              name="Portal home add AI Translator for temp user"
+              priority="60">
+        <xpath expr="//div[@id='portal_common_category']" position="inside">
+            <t t-if="request.env.user.is_temp_user">
+                <t t-call="portal.portal_docs_entry">
+                    <t t-set="icon" t-value="'/portal/static/src/img/portal-connection.svg'"/>
+                    <t t-set="title">AI Translator</t>
+                    <t t-set="url" t-value="'/web'"/>
+                    <t t-set="text">Upload and translate your documents with AI</t>
+                    <t t-set="config_card" t-value="True"/>
+                </t>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- Portal home: replace 'Your Orders' card with AI Translator for temp users. -->
+    <template id="portal_home_sale_ai_translator"
+              inherit_id="sale.portal_my_home_sale"
+              name="Portal sale card -> AI Translator for temp user"
+              priority="50">
+        <xpath expr="//div[@id='portal_client_category']/t[@t-call='portal.portal_docs_entry']" position="replace">
+            <t t-if="not request.env.user.is_temp_user">
+                <t t-call="portal.portal_docs_entry">
+                    <t t-set="icon" t-value="'/sale/static/src/img/bag.svg'"/>
+                    <t t-set="title">Your Orders</t>
+                    <t t-set="url" t-value="'/my/orders'"/>
+                    <t t-set="text">Follow, view or pay your orders</t>
+                    <t t-set="placeholder_count" t-value="'order_count'"/>
+                </t>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- Portal home: replace 'Your Invoices' card with AI Translator for temp users. -->
+    <template id="portal_home_invoice_ai_translator"
+              inherit_id="account.portal_my_home_invoice"
+              name="Portal invoice card -> AI Translator for temp user"
+              priority="50">
+        <xpath expr="//div[@id='portal_client_category']/t[@t-call='portal.portal_docs_entry']" position="replace">
+            <t t-if="not request.env.user.is_temp_user">
+                <t t-call="portal.portal_docs_entry">
+                    <t t-set="icon" t-value="'/account/static/src/img/Bill.svg'"/>
+                    <t t-set="title">Your Invoices</t>
+                    <t t-set="url" t-value="'/my/invoices?filterby=invoices'"/>
+                    <t t-set="text">Follow, download or pay your invoices</t>
+                    <t t-set="placeholder_count" t-value="'invoice_count'"/>
+                </t>
+            </t>
+        </xpath>
+    </template>
+
+</odoo>

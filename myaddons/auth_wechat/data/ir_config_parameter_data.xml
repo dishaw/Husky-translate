@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <!-- Default configuration parameters -->
+    <data noupdate="1">
+        <record id="config_wechat_app_id" model="ir.config_parameter">
+            <field name="key">auth_wechat.app_id</field>
+            <field name="value"></field>
+        </record>
+        <record id="config_wechat_app_secret" model="ir.config_parameter">
+            <field name="key">auth_wechat.app_secret</field>
+            <field name="value"></field>
+        </record>
+        <record id="config_wechat_login_enabled" model="ir.config_parameter">
+            <field name="key">auth_wechat.login_enabled</field>
+            <field name="value">True</field>
+        </record>
+        <record id="config_temp_user_enabled" model="ir.config_parameter">
+            <field name="key">auth_wechat.temp_user_enabled</field>
+            <field name="value">True</field>
+        </record>
+    </data>
+</odoo>
