@@ -3,7 +3,7 @@ services:
     build:
       context: .
       args:
-        ODOO_BASE_IMAGE: ${ODOO_BASE_IMAGE:-odoo-translator:v1}
+        ODOO_BASE_IMAGE: ${ODOO_BASE_IMAGE:-odoo:18.0}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}
         APT_MIRROR: ${APT_MIRROR:-}
     container_name: odoo_trans_web

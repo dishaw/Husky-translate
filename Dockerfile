@@ -1,4 +1,4 @@
-ARG ODOO_BASE_IMAGE=odoo-translator:v1
+ARG ODOO_BASE_IMAGE=odoo:18.0
 FROM ${ODOO_BASE_IMAGE}
 
 ARG PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
@@ -31,6 +31,7 @@ RUN pip3 install --break-system-packages -i "$PIP_INDEX_URL" \
         emoji \
         markdown2 \
         "pydantic>=2.0.0" \
+        packaging \
         openai \
         mcp \
         jinja2 \

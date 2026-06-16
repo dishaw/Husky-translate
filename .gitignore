@@ -1,2 +1,4 @@
 .waylog/
 master password.zip
+__pycache__/
+*.py[cod]

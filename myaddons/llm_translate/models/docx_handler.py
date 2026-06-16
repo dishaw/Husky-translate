@@ -362,7 +362,13 @@ def strip_numbering_prefix(text, numbering_prefix=None):
     return text
 
 
-def extract_paragraphs_from_docx(file_content):
+def extract_paragraphs_from_docx(
+    file_content,
+    image_mode="limited",
+    max_image_bytes=2 * 1024 * 1024,
+    max_total_image_bytes=16 * 1024 * 1024,
+    max_images=80,
+):
     """Extract paragraphs from a .docx file with style metadata.
 
     Args:
@@ -400,19 +406,45 @@ def extract_paragraphs_from_docx(file_content):
     def _build_image_map(part):
         """Build rId -> base64 data URI map from a document part's relationships."""
         img_map = {}
+        if not include_images:
+            return img_map
         try:
             for rel_id, rel in part.rels.items():
                 if "image" in rel.reltype:
                     try:
                         img_blob = rel.target_part.blob
+                        img_size = len(img_blob or b"")
+                        if (
+                            not unlimited_images
+                            and (
+                                image_budget["count"] >= max_images
+                                or img_size > max_image_bytes
+                                or image_budget["bytes"] + img_size > max_total_image_bytes
+                            )
+                        ):
+                            _logger.info(
+                                "Skipping extracted DOCX image %s (%s bytes) to keep extraction lightweight",
+                                rel_id,
+                                img_size,
+                            )
+                            continue
                         ct = rel.target_part.content_type or "image/png"
                         img_b64 = base64.b64encode(img_blob).decode("ascii")
                         img_map[rel_id] = f"data:{ct};base64,{img_b64}"
+                        image_budget["count"] += 1
+                        image_budget["bytes"] += img_size
                     except Exception as e:
                         _logger.warning("Failed to extract image %s: %s", rel_id, e)
         except Exception as e:
             _logger.warning("Could not build image map: %s", e)
         return img_map
+
+    include_images = image_mode != "none"
+    unlimited_images = image_mode == "full"
+    image_budget = {
+        "count": 0,
+        "bytes": 0,
+    }
 
     # Body document image map
     body_image_map = _build_image_map(doc.part)
@@ -1337,7 +1369,13 @@ def extract_paragraphs_from_docx(file_content):
     }
 
 
-def extract_paragraphs_from_doc(file_content):
+def extract_paragraphs_from_doc(
+    file_content,
+    image_mode="limited",
+    max_image_bytes=2 * 1024 * 1024,
+    max_total_image_bytes=16 * 1024 * 1024,
+    max_images=80,
+):
     """Extract paragraphs from a .doc file by converting to .docx via LibreOffice.
 
     Uses LibreOffice headless mode to convert .doc → .docx, then delegates
@@ -1353,7 +1391,13 @@ def extract_paragraphs_from_doc(file_content):
         RuntimeError: If LibreOffice conversion fails.
     """
     docx_content = _convert_doc_to_docx_via_libreoffice(file_content)
-    return extract_paragraphs_from_docx(docx_content)
+    return extract_paragraphs_from_docx(
+        docx_content,
+        image_mode=image_mode,
+        max_image_bytes=max_image_bytes,
+        max_total_image_bytes=max_total_image_bytes,
+        max_images=max_images,
+    )
 
 
 def _convert_doc_to_docx_via_libreoffice(file_content):

@@ -36,7 +36,7 @@ def estimate_tokens(text):
 # Extract paragraphs from PDF
 # ---------------------------------------------------------------------------
 
-def extract_pdf_as_page_images(file_content, dpi=200):
+def extract_pdf_as_page_images(file_content, dpi=144, max_pages=None):
     """Extract PDF pages as images with text for translation.
 
     Each page becomes one paragraph entry containing:
@@ -45,7 +45,7 @@ def extract_pdf_as_page_images(file_content, dpi=200):
 
     Args:
         file_content: Binary content of the PDF file.
-        dpi: Resolution for rendering (default 200 for good quality).
+        dpi: Resolution for rendering (default 144 to reduce memory use).
 
     Returns:
         dict with "paragraphs" list, each entry representing one page.
@@ -57,6 +57,11 @@ def extract_pdf_as_page_images(file_content, dpi=200):
         )
 
     doc = fitz.open(stream=file_content, filetype="pdf")
+    if max_pages is not None and len(doc) > max_pages:
+        doc.close()
+        raise ValueError(
+            f"PDF has {len(doc)} pages, exceeding the extraction limit of {max_pages} pages."
+        )
     paragraphs = []
 
     zoom = dpi / 72.0
@@ -105,7 +110,7 @@ def extract_pdf_as_page_images(file_content, dpi=200):
     }
 
 
-def extract_paragraphs_from_pdf(file_content):
+def extract_paragraphs_from_pdf(file_content, max_pages=None):
     """Extract paragraphs and tables from a PDF file.
 
     Uses a line-by-line approach: each visual line in the PDF becomes one
@@ -125,6 +130,11 @@ def extract_paragraphs_from_pdf(file_content):
         )
 
     doc = fitz.open(stream=file_content, filetype="pdf")
+    if max_pages is not None and len(doc) > max_pages:
+        doc.close()
+        raise ValueError(
+            f"PDF has {len(doc)} pages, exceeding the extraction limit of {max_pages} pages."
+        )
     paragraphs = []
     pdf_pages_meta = []
 
