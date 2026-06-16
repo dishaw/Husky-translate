@@ -971,6 +971,52 @@
 }
 
 /* ================================================================
+ * Translation Settings Modal
+ * ================================================================ */
+.llm-settings-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.35);
+    z-index: 1060;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.llm-settings-modal {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+    width: 420px;
+    max-width: calc(100vw - 32px);
+    overflow: hidden;
+}
+
+.llm-settings-modal-header,
+.llm-settings-modal-footer {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    background: #f8f9fa;
+}
+
+.llm-settings-modal-header {
+    justify-content: space-between;
+    border-bottom: 1px solid #dee2e6;
+    font-weight: 600;
+}
+
+.llm-settings-modal-body {
+    padding: 16px;
+}
+
+.llm-settings-modal-footer {
+    justify-content: flex-end;
+    gap: 8px;
+    border-top: 1px solid #dee2e6;
+}
+
+/* ================================================================
  * Reasoning Modal (outside .llm-translation-view for z-index stacking)
  * ================================================================ */
 .llm-reasoning-modal-backdrop {

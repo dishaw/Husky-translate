@@ -62,6 +62,14 @@ DEFAULT_OFFICE_IMAGE_MODE = "none"
 DEFAULT_OFFICE_MAX_IMAGE_BYTES = 2 * 1024 * 1024
 DEFAULT_OFFICE_MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024
 DEFAULT_OFFICE_MAX_IMAGES = 80
+DEFAULT_EXTRACTION_MEMORY_LIMIT_MB = 1024
+DEFAULT_PDF_EXTRACTION_MODE = "text"
+DEFAULT_PDF_EXTRACTION_DPI = 144
+DEFAULT_PDF_MAX_PAGES = 200
+DEFAULT_OFFICE_IMAGE_MODE = "limited"
+DEFAULT_OFFICE_MAX_IMAGE_BYTES = 2 * 1024 * 1024
+DEFAULT_OFFICE_MAX_TOTAL_IMAGE_BYTES = 16 * 1024 * 1024
+DEFAULT_OFFICE_MAX_IMAGES = 80
 FRONTEND_LINE_PAYLOAD_BYTES = 1 * 1024 * 1024
 EXTRACTION_TIMEOUT_SECONDS = 600
 EXTRACTION_PARAGRAPH_BATCH_SIZE = 50
@@ -630,6 +638,86 @@ class LLMTranslation(models.Model):
             ),
         }
 
+    def _get_extraction_memory_limit_mb(self):
+        """Return per-worker memory guardrail in MB."""
+        try:
+            value = self.env["ir.config_parameter"].sudo().get_param(
+                "llm_translate.extraction_memory_limit_mb",
+                str(DEFAULT_EXTRACTION_MEMORY_LIMIT_MB),
+            )
+            limit_mb = int(value or DEFAULT_EXTRACTION_MEMORY_LIMIT_MB)
+        except (TypeError, ValueError):
+            limit_mb = DEFAULT_EXTRACTION_MEMORY_LIMIT_MB
+        return max(128, min(limit_mb, 4096))
+
+    def _get_pdf_extraction_options(self):
+        """Return PDF extraction guardrails for the isolated worker."""
+        params = self.env["ir.config_parameter"].sudo()
+        mode = params.get_param(
+            "llm_translate.pdf_extraction_mode",
+            DEFAULT_PDF_EXTRACTION_MODE,
+        )
+        if mode not in ("text", "page_images"):
+            mode = DEFAULT_PDF_EXTRACTION_MODE
+        try:
+            dpi = int(params.get_param(
+                "llm_translate.pdf_extraction_dpi",
+                str(DEFAULT_PDF_EXTRACTION_DPI),
+            ) or DEFAULT_PDF_EXTRACTION_DPI)
+        except (TypeError, ValueError):
+            dpi = DEFAULT_PDF_EXTRACTION_DPI
+        try:
+            max_pages = int(params.get_param(
+                "llm_translate.pdf_max_pages",
+                str(DEFAULT_PDF_MAX_PAGES),
+            ) or DEFAULT_PDF_MAX_PAGES)
+        except (TypeError, ValueError):
+            max_pages = DEFAULT_PDF_MAX_PAGES
+        return {
+            "mode": mode,
+            "dpi": max(72, min(dpi, 200)),
+            "max_pages": max(1, min(max_pages, 1000)),
+        }
+
+    def _get_office_extraction_options(self):
+        """Return Office image extraction guardrails for the isolated worker."""
+        params = self.env["ir.config_parameter"].sudo()
+        image_mode = params.get_param(
+            "llm_translate.office_image_mode",
+            DEFAULT_OFFICE_IMAGE_MODE,
+        )
+        if image_mode not in ("none", "limited", "full"):
+            image_mode = DEFAULT_OFFICE_IMAGE_MODE
+
+        def _get_int_param(name, default, minimum, maximum):
+            try:
+                value = int(params.get_param(name, str(default)) or default)
+            except (TypeError, ValueError):
+                value = default
+            return max(minimum, min(value, maximum))
+
+        return {
+            "image_mode": image_mode,
+            "max_image_bytes": _get_int_param(
+                "llm_translate.office_max_image_bytes",
+                DEFAULT_OFFICE_MAX_IMAGE_BYTES,
+                0,
+                50 * 1024 * 1024,
+            ),
+            "max_total_image_bytes": _get_int_param(
+                "llm_translate.office_max_total_image_bytes",
+                DEFAULT_OFFICE_MAX_TOTAL_IMAGE_BYTES,
+                0,
+                200 * 1024 * 1024,
+            ),
+            "max_images": _get_int_param(
+                "llm_translate.office_max_images",
+                DEFAULT_OFFICE_MAX_IMAGES,
+                0,
+                1000,
+            ),
+        }
+
     @staticmethod
     def _kill_extraction_process(proc):
         """Terminate a stuck extraction worker and its child process group."""
@@ -656,6 +744,9 @@ class LLMTranslation(models.Model):
         memory_limit_mb = self._get_extraction_memory_limit_mb()
         pdf_options = self._get_pdf_extraction_options()
         office_options = self._get_office_extraction_options()
+        memory_limit_mb = self._get_extraction_memory_limit_mb()
+        pdf_options = self._get_pdf_extraction_options()
+        office_options = self._get_office_extraction_options()
         worker_path = os.path.join(os.path.dirname(__file__), "extraction_worker.py")
         if not os.path.exists(worker_path):
             raise UserError(_("Document extraction worker is missing."))
@@ -675,6 +766,29 @@ class LLMTranslation(models.Model):
                 input_path,
                 "--output",
                 output_path,
+                "--memory-limit-mb",
+                str(memory_limit_mb),
+            ]
+            if kind == "pdf":
+                cmd.extend([
+                    "--pdf-mode",
+                    pdf_options["mode"],
+                    "--pdf-dpi",
+                    str(pdf_options["dpi"]),
+                    "--pdf-max-pages",
+                    str(pdf_options["max_pages"]),
+                ])
+            elif kind in ("doc", "docx"):
+                cmd.extend([
+                    "--office-image-mode",
+                    office_options["image_mode"],
+                    "--office-max-image-bytes",
+                    str(office_options["max_image_bytes"]),
+                    "--office-max-total-image-bytes",
+                    str(office_options["max_total_image_bytes"]),
+                    "--office-max-images",
+                    str(office_options["max_images"]),
+                ])
                 "--memory-limit-mb",
                 str(memory_limit_mb),
             ]
@@ -2448,7 +2562,32 @@ class LLMTranslation(models.Model):
                 has_pdf_ocr_lines = bool(self.line_ids.filtered(
                     lambda l: l.line_type == "image_ocr"
                 ))
+                has_pdf_ocr_lines = bool(self.line_ids.filtered(
+                    lambda l: l.line_type == "image_ocr"
+                ))
                 ocr_pages = {}  # page_num -> list of text_blocks
+                if has_pdf_ocr_lines:
+                    for line in self.line_ids.sorted("sequence"):
+                        if line.line_type != "image_ocr":
+                            continue
+                        meta = json.loads(line.style_metadata) if line.style_metadata else {}
+                        page_num = meta.get("para_index", 0)  # para_index = page_num for PDF
+                        if line.image_ocr_result:
+                            try:
+                                ocr_data = json.loads(line.image_ocr_result)
+                                blocks = ocr_data.get("text_blocks", [])
+                                if blocks:
+                                    ocr_pages.setdefault(page_num, []).extend(blocks)
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                    result_bytes = pdf_handler.rebuild_pdf_with_ocr(
+                        original_content, ocr_pages
+                    )
+                else:
+                    result_bytes = pdf_handler.rebuild_pdf_from_original(
+                        original_content,
+                        paragraphs_data,
+                    )
                 if has_pdf_ocr_lines:
                     for line in self.line_ids.sorted("sequence"):
                         if line.line_type != "image_ocr":
@@ -2490,8 +2629,37 @@ class LLMTranslation(models.Model):
                             original_content, paragraphs_data
                         )
                     except Exception as e:
-                        _logger.warning("rebuild_docx_from_original failed, falling back: %s", e)
+                        original_media_count = docx_handler.count_docx_media_files(
+                            original_content
+                        )
+                        if original_media_count:
+                            _logger.exception(
+                                "rebuild_docx_from_original failed for a document "
+                                "with %d media files; refusing image-dropping fallback",
+                                original_media_count,
+                            )
+                            raise UserError(_(
+                                "Failed to rebuild the translated Word document "
+                                "while preserving images: %s"
+                            ) % str(e))
+                        _logger.warning(
+                            "rebuild_docx_from_original failed for media-free "
+                            "document, falling back: %s",
+                            e,
+                        )
                         result_bytes = docx_handler.rebuild_docx(paragraphs_data)
+
+                    original_media_count = docx_handler.count_docx_media_files(
+                        original_content
+                    )
+                    result_media_count = docx_handler.count_docx_media_files(
+                        result_bytes
+                    )
+                    if original_media_count and not result_media_count:
+                        raise UserError(_(
+                            "Translated Word document was rebuilt without images. "
+                            "Please retry; the image-preserving rebuild failed."
+                        ))
                 else:
                     result_bytes = docx_handler.rebuild_docx(paragraphs_data)
                 result_name = f"{base_name}_{target_lang}.docx"

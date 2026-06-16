@@ -10,6 +10,8 @@ import { DropdownItem } from "@web/core/dropdown/dropdown_item";
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const LARGE_UPLOAD_BYTES = 1 * 1024 * 1024;
+const SUBMIT_INTERVAL_STORAGE_KEY = "llm_translate.submit_interval_ms";
+const DEFAULT_SUBMIT_INTERVAL_MS = 300;
 
 /**
  * LLM Translation View - Word-style split-pane document translation
@@ -91,6 +93,11 @@ export class LLMTranslationView extends Component {
             glossaryNewTranslated: "",
             glossaryFilter: "",
             glossaryCount: 0,
+
+            // Translation submit pacing
+            showSettingsModal: false,
+            submitIntervalMs: this._loadSubmitIntervalMs(),
+            submitIntervalInput: "",
 
             // Guest/temp user support
             isTempUser: false,
@@ -361,6 +368,23 @@ export class LLMTranslationView extends Component {
     // =========================================================================
     // Data Loading
     // =========================================================================
+
+    _loadSubmitIntervalMs() {
+        const raw = window.localStorage?.getItem(SUBMIT_INTERVAL_STORAGE_KEY);
+        const parsed = Number.parseInt(raw || "", 10);
+        if (Number.isFinite(parsed)) {
+            return Math.max(0, Math.min(parsed, 60000));
+        }
+        return DEFAULT_SUBMIT_INTERVAL_MS;
+    }
+
+    _submitDelay() {
+        const delay = Math.max(0, Math.min(Number(this.state.submitIntervalMs) || 0, 60000));
+        if (!delay) {
+            return Promise.resolve();
+        }
+        return new Promise((resolve) => setTimeout(resolve, delay));
+    }
 
     async _loadInitialData() {
         try {
@@ -2273,7 +2297,7 @@ export class LLMTranslationView extends Component {
                         );
                         break;
                     }
-                    await new Promise((r) => setTimeout(r, 2000));
+                    await this._submitDelay();
                     continue;
                 }
 
@@ -2430,6 +2454,8 @@ export class LLMTranslationView extends Component {
                     }
                     break;
                 }
+
+                await this._submitDelay();
             }
 
             if (this._abortTranslation) {
@@ -2448,6 +2474,33 @@ export class LLMTranslationView extends Component {
 
     onStopTranslation() {
         this._abortTranslation = true;
+    }
+
+    onOpenSettings() {
+        this.state.submitIntervalInput = String(this.state.submitIntervalMs ?? DEFAULT_SUBMIT_INTERVAL_MS);
+        this.state.showSettingsModal = true;
+    }
+
+    onCloseSettings() {
+        this.state.showSettingsModal = false;
+    }
+
+    onSubmitIntervalInput(ev) {
+        this.state.submitIntervalInput = ev.target.value;
+    }
+
+    onSaveSettings() {
+        const raw = Number.parseInt(this.state.submitIntervalInput || "0", 10);
+        if (!Number.isFinite(raw) || raw < 0 || raw > 60000) {
+            this.notification.add(_t("Interval must be between 0 and 60000 ms."), {
+                type: "warning",
+            });
+            return;
+        }
+        this.state.submitIntervalMs = raw;
+        window.localStorage?.setItem(SUBMIT_INTERVAL_STORAGE_KEY, String(raw));
+        this.state.showSettingsModal = false;
+        this.notification.add(_t("Translation interval saved."), { type: "success" });
     }
 
     async onResetToDraft() {

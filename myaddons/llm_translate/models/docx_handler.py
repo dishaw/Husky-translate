@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import tempfile
+import zipfile
 
 _logger = logging.getLogger(__name__)
 
@@ -42,6 +43,21 @@ def estimate_tokens(text):
                     or '\uac00' <= c <= '\ud7af')
     ascii_count = len(text) - cjk_count
     return int(cjk_count / 1.5 + ascii_count / 4)
+
+
+def count_docx_media_files(file_content):
+    """Return the number of media payloads inside a DOCX package."""
+    if not file_content:
+        return 0
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_content)) as zf:
+            return sum(
+                1
+                for name in zf.namelist()
+                if name.startswith("word/media/") and not name.endswith("/")
+            )
+    except Exception:
+        return 0
 
 
 def split_long_paragraph(text, max_tokens=2000):
@@ -2478,7 +2494,14 @@ def rebuild_docx_from_original(original_content, rebuild_data):
 
     # ── Insert OCR text boxes for image translation ───────────────
     if image_ocr_results:
-        _insert_image_ocr_textboxes(doc, image_ocr_results)
+        try:
+            _insert_image_ocr_textboxes(doc, image_ocr_results)
+        except Exception as e:
+            _logger.exception(
+                "Failed to insert image OCR text boxes; saving translated DOCX "
+                "with original images preserved: %s",
+                e,
+            )
 
     # ── Save modified document ────────────────────────────────────
     buffer = io.BytesIO()

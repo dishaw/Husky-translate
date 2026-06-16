@@ -56,6 +56,16 @@ def _extract(
             file_content,
             max_pages=pdf_max_pages,
         )
+        if pdf_mode == "page_images":
+            return pdf_handler.extract_pdf_as_page_images(
+                file_content,
+                dpi=pdf_dpi,
+                max_pages=pdf_max_pages,
+            )
+        return pdf_handler.extract_paragraphs_from_pdf(
+            file_content,
+            max_pages=pdf_max_pages,
+        )
     if kind == "pptx":
         return pptx_handler.extract_paragraphs_from_pptx(file_content)
     if kind == "ppt":
@@ -68,7 +78,21 @@ def _extract(
             max_total_image_bytes=office_max_total_image_bytes,
             max_images=office_max_images,
         )
+        return docx_handler.extract_paragraphs_from_docx(
+            file_content,
+            image_mode=office_image_mode,
+            max_image_bytes=office_max_image_bytes,
+            max_total_image_bytes=office_max_total_image_bytes,
+            max_images=office_max_images,
+        )
     if kind == "doc":
+        return docx_handler.extract_paragraphs_from_doc(
+            file_content,
+            image_mode=office_image_mode,
+            max_image_bytes=office_max_image_bytes,
+            max_total_image_bytes=office_max_total_image_bytes,
+            max_images=office_max_images,
+        )
         return docx_handler.extract_paragraphs_from_doc(
             file_content,
             image_mode=office_image_mode,
@@ -96,8 +120,20 @@ def main(argv=None):
 
     try:
         _apply_memory_limit(args.memory_limit_mb)
+        _apply_memory_limit(args.memory_limit_mb)
         with open(args.input, "rb") as f:
             file_content = f.read()
+        payload = {"ok": True, "result": _extract(
+            args.kind,
+            file_content,
+            pdf_mode=args.pdf_mode,
+            pdf_dpi=args.pdf_dpi,
+            pdf_max_pages=args.pdf_max_pages,
+            office_image_mode=args.office_image_mode,
+            office_max_image_bytes=args.office_max_image_bytes,
+            office_max_total_image_bytes=args.office_max_total_image_bytes,
+            office_max_images=args.office_max_images,
+        )}
         payload = {"ok": True, "result": _extract(
             args.kind,
             file_content,

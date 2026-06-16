@@ -437,6 +437,12 @@
                             </button>
 
                             <button class="btn btn-sm btn-outline-secondary"
+                                t-on-click="onOpenSettings"
+                                t-att-title="'Submit interval: ' + state.submitIntervalMs + ' ms'">
+                                <i class="fa fa-cog" />
+                            </button>
+
+                            <button class="btn btn-sm btn-outline-secondary"
                                 t-on-click="onOpenInForm" title="Open in form view">
                                 <i class="fa fa-external-link" />
                             </button>
@@ -1116,6 +1122,44 @@
                     <small class="text-muted">
                         <t t-esc="filteredGlossaryEntries.length" /> entries
                     </small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Translation Settings Modal -->
+        <div t-if="state.showSettingsModal" class="llm-settings-modal-backdrop"
+             t-on-click.self="onCloseSettings">
+            <div class="llm-settings-modal">
+                <div class="llm-settings-modal-header">
+                    <span><i class="fa fa-cog me-2" />Translation Settings</span>
+                    <button class="btn-close" t-on-click="onCloseSettings" />
+                </div>
+                <div class="llm-settings-modal-body">
+                    <label class="form-label" for="llm-submit-interval">
+                        Submit interval
+                    </label>
+                    <div class="input-group input-group-sm">
+                        <input id="llm-submit-interval"
+                            class="form-control"
+                            type="number"
+                            min="0"
+                            max="60000"
+                            step="100"
+                            t-att-value="state.submitIntervalInput"
+                            t-on-input="onSubmitIntervalInput" />
+                        <span class="input-group-text">ms</span>
+                    </div>
+                    <div class="form-text">
+                        Time to wait between translation batch submissions. Use 0 for no delay.
+                    </div>
+                </div>
+                <div class="llm-settings-modal-footer">
+                    <button class="btn btn-sm btn-outline-secondary" t-on-click="onCloseSettings">
+                        Cancel
+                    </button>
+                    <button class="btn btn-sm btn-primary" t-on-click="onSaveSettings">
+                        Save
+                    </button>
                 </div>
             </div>
         </div>
