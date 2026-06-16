@@ -60,6 +60,47 @@ def count_docx_media_files(file_content):
         return 0
 
 
+def _clean_xml_text(text):
+    """Remove characters that are illegal in XML 1.0 text nodes."""
+    if text is None:
+        return ""
+    text = str(text)
+    return "".join(
+        ch
+        for ch in text
+        if (
+            ch in "\t\n\r"
+            or 0x20 <= ord(ch) <= 0xD7FF
+            or 0xE000 <= ord(ch) <= 0xFFFD
+            or 0x10000 <= ord(ch) <= 0x10FFFF
+        )
+    )
+
+
+def validate_docx_package(file_content):
+    """Raise ValueError if *file_content* is not a readable DOCX package."""
+    if not file_content:
+        raise ValueError("DOCX output is empty")
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_content)) as zf:
+            names = set(zf.namelist())
+            required = {"[Content_Types].xml", "_rels/.rels", "word/document.xml"}
+            missing = required - names
+            if missing:
+                raise ValueError(
+                    "DOCX output is missing required package parts: "
+                    + ", ".join(sorted(missing))
+                )
+            bad_member = zf.testzip()
+            if bad_member:
+                raise ValueError(f"DOCX zip member is corrupt: {bad_member}")
+        if Document is not None:
+            Document(io.BytesIO(file_content))
+    except zipfile.BadZipFile as exc:
+        raise ValueError("DOCX output is not a valid zip package") from exc
+    return True
+
+
 def split_long_paragraph(text, max_tokens=2000):
     """Split a paragraph that exceeds max_tokens into sentence-level chunks.
 
@@ -1599,7 +1640,7 @@ def rebuild_docx(rebuild_data):
     doc = Document()
 
     for para_data in paragraphs_data:
-        text = para_data.get("translated_text", "")
+        text = _clean_xml_text(para_data.get("translated_text", ""))
         meta = para_data.get("style_metadata", {})
 
         # Extract only paragraph text (strip textbox portions from combined text)
@@ -1635,7 +1676,7 @@ def rebuild_docx(rebuild_data):
         original_runs = meta.get("runs", [])
         if original_runs and text:
             # Simple approach: put all translated text in one run with first run's style
-            run = para.add_run(text)
+            run = para.add_run(_clean_xml_text(text))
             first_run = original_runs[0]
             run.bold = first_run.get("bold", False)
             run.italic = first_run.get("italic", False)
@@ -1648,7 +1689,7 @@ def rebuild_docx(rebuild_data):
                 except Exception:
                     pass
         else:
-            run = para.add_run(text)
+            run = para.add_run(_clean_xml_text(text))
             if meta.get("bold"):
                 run.bold = True
             if meta.get("font_size"):
@@ -1663,7 +1704,7 @@ def rebuild_docx(rebuild_data):
                 for p in hdr.paragraphs:
                     p.clear()
                 target_p = hdr.paragraphs[0] if hdr.paragraphs else hdr.add_paragraph()
-                run = target_p.add_run(header_text)
+                run = target_p.add_run(_clean_xml_text(header_text))
                 run.font.size = Pt(9)
                 target_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             if footer_text:
@@ -1672,7 +1713,7 @@ def rebuild_docx(rebuild_data):
                 for p in ftr.paragraphs:
                     p.clear()
                 target_p = ftr.paragraphs[0] if ftr.paragraphs else ftr.add_paragraph()
-                run = target_p.add_run(footer_text)
+                run = target_p.add_run(_clean_xml_text(footer_text))
                 run.font.size = Pt(9)
                 target_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -1680,7 +1721,9 @@ def rebuild_docx(rebuild_data):
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
-    return buffer.read()
+    result = buffer.read()
+    validate_docx_package(result)
+    return result
 
 
 def strip_formatting_tags(text):
@@ -1762,6 +1805,7 @@ def _xml_escape(text):
     """Escape text for safe inclusion in XML content."""
     if not text:
         return ""
+    text = _clean_xml_text(text)
     return (
         text.replace("&", "&amp;")
         .replace("<", "&lt;")
@@ -2247,6 +2291,7 @@ def rebuild_docx_from_original(original_content, rebuild_data):
         Splits translated text by newlines and maps to existing paragraphs.
         Preserves all XML structure and formatting.
         """
+        translated_text = _clean_xml_text(translated_text or "")
         lines = translated_text.split("\n") if translated_text else [""]
         w_paras = txbx_content.findall('{%s}p' % NSMAP['w'])
 
@@ -2283,7 +2328,7 @@ def rebuild_docx_from_original(original_content, rebuild_data):
         _accept_tracked_changes(para._element)
         runs = para.runs
         if not runs:
-            para.add_run(strip_formatting_tags(translated_text or ""))
+            para.add_run(_clean_xml_text(strip_formatting_tags(translated_text or "")))
             return
 
         # Check if translated text contains formatting tags
@@ -2291,7 +2336,7 @@ def rebuild_docx_from_original(original_content, rebuild_data):
 
         if not has_tags:
             # No formatting tags → original behaviour: put all text in first run
-            plain = strip_formatting_tags(translated_text or "")
+            plain = _clean_xml_text(strip_formatting_tags(translated_text or ""))
             first_done = False
             for run in runs:
                 t_elements = run._element.findall('{%s}t' % w_ns)
@@ -2507,7 +2552,9 @@ def rebuild_docx_from_original(original_content, rebuild_data):
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
-    return buffer.read()
+    result = buffer.read()
+    validate_docx_package(result)
+    return result
 
 
 def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
@@ -2552,7 +2599,7 @@ def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
             parent.remove(ins_el)
 
     def _strip_tags(text):
-        return strip_formatting_tags(text or "")
+        return _clean_xml_text(strip_formatting_tags(text or ""))
 
     def _remove_paragraph_numbering(para):
         pPr = para._element.find('{%s}pPr' % w_ns)
@@ -2589,7 +2636,7 @@ def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
 
     def _replace_para_text(para, translated_text):
         _accept_tracked_changes(para._element)
-        translated_text = translated_text or ""
+        translated_text = _clean_xml_text(translated_text or "")
         runs = para.runs
         if not runs:
             para.add_run(_strip_tags(translated_text))
@@ -2638,7 +2685,7 @@ def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
         if first_t is None:
             first_t = etree.SubElement(first_run_elem, '{%s}t' % w_ns)
 
-        first_t.text = first_seg["text"]
+        first_t.text = _clean_xml_text(first_seg["text"])
         first_t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
         _apply_segment_formatting(first_run_elem, first_seg)
 
@@ -2649,7 +2696,7 @@ def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
                 new_run.insert(0, deepcopy(template_rPr))
             _apply_segment_formatting(new_run, seg)
             new_t = etree.SubElement(new_run, '{%s}t' % w_ns)
-            new_t.text = seg["text"]
+            new_t.text = _clean_xml_text(seg["text"])
             new_t.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
             insert_after.addnext(new_run)
             insert_after = new_run
@@ -2713,4 +2760,6 @@ def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
-    return buffer.read()
+    result = buffer.read()
+    validate_docx_package(result)
+    return result

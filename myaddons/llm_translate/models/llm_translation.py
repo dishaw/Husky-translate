@@ -77,7 +77,8 @@ EXTRACTION_LINE_CREATE_BATCH_SIZE = 100
 
 # Language choices
 LANGUAGE_SELECTION = [
-    ("zh", "中文 (Chinese)"),
+    ("zh", "Simplified Chinese"),
+    ("zh_tw", "Traditional Chinese"),
     ("en", "English"),
     ("ja", "日本語 (Japanese)"),
     ("ko", "한국어 (Korean)"),
@@ -96,6 +97,10 @@ LANGUAGE_SELECTION = [
 
 # Map language code to display name for prompts
 LANGUAGE_NAMES = {code: name for code, name in LANGUAGE_SELECTION}
+LANGUAGE_PROMPT_NAMES = {
+    "zh": "Simplified Chinese",
+    "zh_tw": "Traditional Chinese",
+}
 
 
 class LLMTranslation(models.Model):
@@ -359,14 +364,20 @@ class LLMTranslation(models.Model):
         self.ensure_one()
         if self.source_lang == "other":
             return self.source_lang_custom or "Unknown"
-        return LANGUAGE_NAMES.get(self.source_lang, self.source_lang)
+        return LANGUAGE_PROMPT_NAMES.get(
+            self.source_lang,
+            LANGUAGE_NAMES.get(self.source_lang, self.source_lang),
+        )
 
     def _get_target_lang_name(self):
         """Get the display name of the target language."""
         self.ensure_one()
         if self.target_lang == "other":
             return self.target_lang_custom or "Unknown"
-        return LANGUAGE_NAMES.get(self.target_lang, self.target_lang)
+        return LANGUAGE_PROMPT_NAMES.get(
+            self.target_lang,
+            LANGUAGE_NAMES.get(self.target_lang, self.target_lang),
+        )
 
     # =========================================================================
     # FILE UPLOAD & EXTRACTION
@@ -1248,10 +1259,20 @@ class LLMTranslation(models.Model):
             f"PRESERVE these tags in the translation at the same relative positions. "
             f"Translate only the content inside the tags, never translate the tag names themselves.\n"
         )
+        if self.target_lang == "zh":
+            prompt += (
+                "11. The target language is Simplified Chinese. Use Simplified Chinese "
+                "characters only; do not output Traditional Chinese characters.\n"
+            )
+        elif self.target_lang == "zh_tw":
+            prompt += (
+                "11. The target language is Traditional Chinese. Use Traditional Chinese "
+                "characters and wording.\n"
+            )
 
         if batch_mode:
             prompt += (
-                f"11. The input contains MULTIPLE paragraphs separated by [SEP] markers. "
+                f"12. The input contains MULTIPLE paragraphs separated by [SEP] markers. "
                 f"Translate each paragraph independently. Your output MUST contain "
                 f"the EXACT SAME number of [SEP] markers as the input to separate "
                 f"the translated paragraphs. Keep [SEP] markers on their own line. "
@@ -1303,9 +1324,10 @@ class LLMTranslation(models.Model):
             })
             raise
 
-    # Hard limits for batch translation
-    BATCH_MAX_LINES = 20      # never exceed this many paragraphs per batch
-    BATCH_MAX_TOKENS = 6000   # soft token ceiling per batch
+    # Prompt budget for batch translation.
+    # Regular paragraphs are packed until this token ceiling is reached.
+    BATCH_MAX_TOKENS = 6000
+    BATCH_CANDIDATE_WINDOW = 500
     TABLE_ROW_MARKER = "[ROW]"
     TABLE_CELL_MARKER = "[CELL]"
 
@@ -1497,7 +1519,7 @@ class LLMTranslation(models.Model):
         below it, or all items of a numbered list, or a block of
         normal paragraphs separated by empty lines from the next block.
 
-        Respects token and line-count ceilings.
+        Respects the prompt token budget.
 
         Args:
             pending_lines: Recordset of pending ``llm.translation.line``
@@ -1562,15 +1584,9 @@ class LLMTranslation(models.Model):
             if is_boundary_line:
                 break
 
-            # ── Check whether to break BEFORE adding this line ──
             if batch_ids:
-                # Hard limits
-                if len(batch_ids) >= self.BATCH_MAX_LINES:
-                    break
                 if total_tokens + tokens > self.BATCH_MAX_TOKENS and total_tokens > 0:
                     break
-                # Keep up to 20 regular lines together so the model can use
-                # nearby context and keep proper nouns/technical terms consistent.
 
             batch_ids.append(line.id)
             total_tokens += tokens
@@ -1579,7 +1595,7 @@ class LLMTranslation(models.Model):
 
         return self.env["llm.translation.line"].browse(batch_ids)
 
-    def action_translate_next(self):
+    def action_translate_next(self, single_line=False):
         """Translate the next *smart batch* of pending lines.
 
         Uses structural heuristics (headings, numbering, empty lines,
@@ -1631,7 +1647,7 @@ class LLMTranslation(models.Model):
                 "error": False,
             }
 
-        candidate_limit = self.BATCH_MAX_LINES * 2
+        candidate_limit = self.BATCH_CANDIDATE_WINDOW
         first_meta = self._parse_line_meta(first_candidate)
         if first_candidate.line_type == "image_ocr":
             candidate_limit = 1
@@ -1641,7 +1657,7 @@ class LLMTranslation(models.Model):
         ):
             candidate_limit = max(
                 int(first_meta.get("table_row_count") or 0) + 5,
-                self.BATCH_MAX_LINES * 2,
+                self.BATCH_CANDIDATE_WINDOW,
             )
 
         # Fetch enough pending lines so table batches can include the whole
@@ -1666,9 +1682,13 @@ class LLMTranslation(models.Model):
             }
 
         # --- Smart batch selection ---
-        pending_lines = self._collect_smart_batch(candidate_lines)
+        if single_line:
+            pending_lines = candidate_lines[:1]
+        else:
+            pending_lines = self._collect_smart_batch(candidate_lines)
         _logger.info(
-            "Smart batch: selected %d/%d pending lines (tokens ~%d)",
+            "%s batch: selected %d/%d pending lines (tokens ~%d)",
+            "Single-line" if single_line else "Smart",
             len(pending_lines),
             len(candidate_lines),
             sum(l.estimated_tokens or 0 for l in pending_lines),
@@ -1813,42 +1833,44 @@ class LLMTranslation(models.Model):
                     else:
                         _logger.warning(
                             "Batch SEP count mismatch: expected %d, got %d. "
-                            "Falling back to individual translation.",
+                            "Falling back to one line only; remaining lines stay pending.",
                             len(translatable_lines), len(segments),
                         )
-                        for line_rec in translatable_lines:
-                            try:
-                                self._translate_single_line(line_rec, combined_glossary)
-                                translated_ids.append(line_rec.id)
-                            except Exception as e:
-                                _logger.error(
-                                    "Fallback translate failed for seq=%s: %s",
-                                    line_rec.sequence, e,
-                                )
-                                line_rec.write({
-                                    "state": "error",
-                                    "translated_text": f"[TRANSLATION ERROR: {e}]",
-                                })
-                                line_errors.append(str(e))
+                        line_rec = translatable_lines[0]
+                        try:
+                            self._translate_single_line(line_rec, combined_glossary)
+                            translated_ids.append(line_rec.id)
+                        except Exception as e:
+                            _logger.error(
+                                "Fallback translate failed for seq=%s: %s",
+                                line_rec.sequence, e,
+                            )
+                            line_rec.write({
+                                "state": "error",
+                                "translated_text": f"[TRANSLATION ERROR: {e}]",
+                            })
+                            translated_ids.append(line_rec.id)
+                            line_errors.append(str(e))
 
             except Exception as e:
                 _logger.error(
-                    "Batch translation failed, falling back to individual: %s", e,
+                    "Batch translation failed, falling back to one line only: %s", e,
                 )
-                for line_rec in translatable_lines:
-                    try:
-                        self._translate_single_line(line_rec)
-                        translated_ids.append(line_rec.id)
-                    except Exception as e2:
-                        _logger.error(
-                            "Individual translate failed for seq=%s: %s",
-                            line_rec.sequence, e2,
-                        )
-                        line_rec.write({
-                            "state": "error",
-                            "translated_text": f"[TRANSLATION ERROR: {e2}]",
-                        })
-                        line_errors.append(str(e2))
+                line_rec = translatable_lines[0]
+                try:
+                    self._translate_single_line(line_rec)
+                    translated_ids.append(line_rec.id)
+                except Exception as e2:
+                    _logger.error(
+                        "Individual translate failed for seq=%s: %s",
+                        line_rec.sequence, e2,
+                    )
+                    line_rec.write({
+                        "state": "error",
+                        "translated_text": f"[TRANSLATION ERROR: {e2}]",
+                    })
+                    translated_ids.append(line_rec.id)
+                    line_errors.append(str(e2))
 
         self.env.cr.commit()
 
@@ -2930,10 +2952,13 @@ class LLMTranslation(models.Model):
 
         except Exception as e:
             _logger.exception("Failed to build translated document")
+            error_message = _("Failed to build translated document: %s") % str(e)
             self.write({
                 "state": "error",
-                "error_message": _("Failed to build translated document: %s") % str(e),
+                "error_message": error_message,
             })
+            if force_rebuild:
+                raise UserError(error_message)
 
     def _prepare_rebuild_data(self):
         """Prepare data for rebuilding the translated document.
@@ -3341,6 +3366,7 @@ class LLMTranslation(models.Model):
             buffer = docx_handler.io.BytesIO()
             doc.save(buffer)
             result_bytes = buffer.getvalue()
+            docx_handler.validate_docx_package(result_bytes)
 
         attachment_vals = {
             "name": f"{base_name}_{target_lang}_bilingual.docx",

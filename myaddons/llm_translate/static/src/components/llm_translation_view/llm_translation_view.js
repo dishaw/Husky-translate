@@ -14,6 +14,8 @@ const SUBMIT_INTERVAL_STORAGE_KEY = "llm_translate.submit_interval_ms";
 const DEFAULT_SUBMIT_INTERVAL_MS = 300;
 const TABLE_TRANSLATION_NEWLINE_STORAGE_KEY = "llm_translate.table_translation_newline";
 const DEFAULT_TABLE_TRANSLATION_NEWLINE = true;
+const SINGLE_LINE_TRANSLATION_STORAGE_KEY = "llm_translate.single_line_translation";
+const DEFAULT_SINGLE_LINE_TRANSLATION = false;
 
 /**
  * LLM Translation View - Word-style split-pane document translation
@@ -103,6 +105,8 @@ export class LLMTranslationView extends Component {
             submitIntervalInput: "",
             tableTranslationNewline: this._loadTableTranslationNewline(),
             tableTranslationNewlineInput: DEFAULT_TABLE_TRANSLATION_NEWLINE,
+            singleLineTranslation: this._loadSingleLineTranslation(),
+            singleLineTranslationInput: DEFAULT_SINGLE_LINE_TRANSLATION,
 
             // Guest/temp user support
             isTempUser: false,
@@ -111,7 +115,8 @@ export class LLMTranslationView extends Component {
         });
 
         this.languages = [
-            { value: "zh", label: "中文 (Chinese)" },
+            { value: "zh", label: "Simplified Chinese" },
+            { value: "zh_tw", label: "Traditional Chinese" },
             { value: "en", label: "English" },
             { value: "ja", label: "日本語 (Japanese)" },
             { value: "ko", label: "한국어 (Korean)" },
@@ -391,8 +396,19 @@ export class LLMTranslationView extends Component {
         return raw !== "0" && raw !== "false";
     }
 
-    _submitDelay() {
-        const delay = Math.max(0, Math.min(Number(this.state.submitIntervalMs) || 0, 60000));
+    _loadSingleLineTranslation() {
+        const raw = window.localStorage?.getItem(SINGLE_LINE_TRANSLATION_STORAGE_KEY);
+        if (raw === null || raw === undefined) {
+            return DEFAULT_SINGLE_LINE_TRANSLATION;
+        }
+        return raw === "1" || raw === "true";
+    }
+
+    _submitDelay(overrideMs = null) {
+        const baseDelay = overrideMs === null || overrideMs === undefined
+            ? Number(this.state.submitIntervalMs)
+            : Number(overrideMs);
+        const delay = Math.max(0, Math.min(baseDelay || 0, 60000));
         if (!delay) {
             return Promise.resolve();
         }
@@ -413,6 +429,9 @@ export class LLMTranslationView extends Component {
             .sort((a, b) => (a.sequence || 0) - (b.sequence || 0));
         if (!pending.length) {
             return [];
+        }
+        if (this.state.singleLineTranslation) {
+            return [pending[0]];
         }
         if (this._isSlowTranslationLine(pending[0])) {
             return [pending[0]];
@@ -2359,6 +2378,7 @@ export class LLMTranslationView extends Component {
 
     async onStartTranslation() {
         if (!this.state.currentTranslation) return;
+        if (this.state.isTranslating) return;
 
         // If there are error lines, reset them to pending so they get re-translated
         if (this.state.currentTranslation.state === "error") {
@@ -2393,6 +2413,7 @@ export class LLMTranslationView extends Component {
                     markedBatchIds = this._markNextBatchTranslating();
                     result = await rpc("/llm_translate/translate_next", {
                         translation_id: translationId,
+                        single_line: !!this.state.singleLineTranslation,
                     });
                 } catch (e) {
                     this._restoreUnreturnedBatchLines(markedBatchIds, []);
@@ -2491,7 +2512,8 @@ export class LLMTranslationView extends Component {
                 }
 
                 if (result.error && !result.finished && /busy/i.test(result.error)) {
-                    await this._submitDelay();
+                    this._restoreUnreturnedBatchLines(markedBatchIds, []);
+                    await this._submitDelay(Math.max(3000, this.state.submitIntervalMs || 0));
                     continue;
                 }
                 if (result.error && !result.finished) {
@@ -2596,6 +2618,7 @@ export class LLMTranslationView extends Component {
     onOpenSettings() {
         this.state.submitIntervalInput = String(this.state.submitIntervalMs ?? DEFAULT_SUBMIT_INTERVAL_MS);
         this.state.tableTranslationNewlineInput = !!this.state.tableTranslationNewline;
+        this.state.singleLineTranslationInput = !!this.state.singleLineTranslation;
         this.state.showSettingsModal = true;
     }
 
@@ -2611,6 +2634,10 @@ export class LLMTranslationView extends Component {
         this.state.tableTranslationNewlineInput = !!ev.target.checked;
     }
 
+    onSingleLineTranslationInput(ev) {
+        this.state.singleLineTranslationInput = !!ev.target.checked;
+    }
+
     onSaveSettings() {
         const raw = Number.parseInt(this.state.submitIntervalInput || "0", 10);
         if (!Number.isFinite(raw) || raw < 0 || raw > 60000) {
@@ -2621,10 +2648,15 @@ export class LLMTranslationView extends Component {
         }
         this.state.submitIntervalMs = raw;
         this.state.tableTranslationNewline = !!this.state.tableTranslationNewlineInput;
+        this.state.singleLineTranslation = !!this.state.singleLineTranslationInput;
         window.localStorage?.setItem(SUBMIT_INTERVAL_STORAGE_KEY, String(raw));
         window.localStorage?.setItem(
             TABLE_TRANSLATION_NEWLINE_STORAGE_KEY,
             this.state.tableTranslationNewline ? "1" : "0"
+        );
+        window.localStorage?.setItem(
+            SINGLE_LINE_TRANSLATION_STORAGE_KEY,
+            this.state.singleLineTranslation ? "1" : "0"
         );
         this.state.showSettingsModal = false;
         this.notification.add(_t("Translation settings saved."), { type: "success" });
@@ -2672,6 +2704,10 @@ export class LLMTranslationView extends Component {
             translation_id: this.state.currentTranslation.id,
             export_mode: this.state.translationDisplayMode === "bilingual" ? "bilingual" : "translated",
         });
+        if (result.error) {
+            this.notification.add(result.error, { type: "danger" });
+            return;
+        }
         this.state.currentTranslation = result;
 
         if (result.result_filename) {

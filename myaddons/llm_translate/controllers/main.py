@@ -334,7 +334,7 @@ class LLMTranslateController(http.Controller):
             return {"error": str(e)}
 
     @http.route("/llm_translate/translate_next", type="json", auth="public", methods=["POST"])
-    def translate_next(self, translation_id):
+    def translate_next(self, translation_id, single_line=False):
         """Translate the next batch of pending paragraphs.
 
         The frontend should call this in a loop until 'finished' is True.
@@ -351,6 +351,10 @@ class LLMTranslateController(http.Controller):
         translation = request.env["llm.translation"].sudo().browse(int(translation_id))
         if not translation.exists():
             return {"error": "Translation not found", "finished": True}
+        if isinstance(single_line, str):
+            single_line = single_line.lower() in ("1", "true", "yes", "on")
+        else:
+            single_line = bool(single_line)
         if not self._try_translation_lock(translation.id):
             return {
                 "error": "Translation is busy. Please wait for the current batch to finish.",
@@ -358,7 +362,7 @@ class LLMTranslateController(http.Controller):
             }
 
         try:
-            result = translation.action_translate_next()
+            result = translation.action_translate_next(single_line=single_line)
             # Attach updated line data for ALL translated lines in this batch
             lines_data = []
             line_ids = []

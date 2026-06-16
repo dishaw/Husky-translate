@@ -331,6 +331,8 @@
 
         /* Translating rows: subtle pulse animation */
         .llm-table-row-translating td {
+            color: #224f7a;
+            background-color: rgba(34, 79, 122, 0.07);
             opacity: 0.55;
             animation: llm-cell-pulse 1.5s ease-in-out infinite;
         }
@@ -372,8 +374,8 @@
         }
 
         @keyframes llm-cell-pulse {
-            0%, 100% { opacity: 0.55; }
-            50% { opacity: 0.35; }
+            0%, 100% { opacity: 0.78; }
+            50% { opacity: 0.55; }
         }
     }
 
@@ -726,12 +728,13 @@
 
     .llm-translating-breathe {
         display: inline-block;
+        color: #224f7a !important;
         animation: llm-text-breathe 1.45s ease-in-out infinite;
     }
 
     @keyframes llm-text-breathe {
         0%, 100% {
-            opacity: 0.46;
+            opacity: 0.68;
         }
         50% {
             opacity: 1;

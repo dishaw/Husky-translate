@@ -1205,6 +1205,19 @@
                     <div class="form-text">
                         勾选后表格译文显示为下一行；取消勾选后译文直接跟随在原文后面。
                     </div>
+                    <div class="form-check mt-3">
+                        <input id="llm-single-line-translation"
+                            class="form-check-input"
+                            type="checkbox"
+                            t-att-checked="state.singleLineTranslationInput"
+                            t-on-change="onSingleLineTranslationInput" />
+                        <label class="form-check-label" for="llm-single-line-translation">
+                            逐行翻译
+                        </label>
+                    </div>
+                    <div class="form-text">
+                        勾选后每次只提交下一条待翻译段落，不再批量翻译。
+                    </div>
                 </div>
                 <div class="llm-settings-modal-footer">
                     <button class="btn btn-sm btn-outline-secondary" t-on-click="onCloseSettings">
