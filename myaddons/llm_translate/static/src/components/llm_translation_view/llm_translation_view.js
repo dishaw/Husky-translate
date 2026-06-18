@@ -16,6 +16,8 @@ const TABLE_TRANSLATION_NEWLINE_STORAGE_KEY = "llm_translate.table_translation_n
 const DEFAULT_TABLE_TRANSLATION_NEWLINE = true;
 const SINGLE_LINE_TRANSLATION_STORAGE_KEY = "llm_translate.single_line_translation";
 const DEFAULT_SINGLE_LINE_TRANSLATION = false;
+const TRANSLATION_FIRST_STORAGE_KEY = "llm_translate.translation_first";
+const DEFAULT_TRANSLATION_FIRST = false;
 
 /**
  * LLM Translation View - Word-style split-pane document translation
@@ -107,6 +109,8 @@ export class LLMTranslationView extends Component {
             tableTranslationNewlineInput: DEFAULT_TABLE_TRANSLATION_NEWLINE,
             singleLineTranslation: this._loadSingleLineTranslation(),
             singleLineTranslationInput: DEFAULT_SINGLE_LINE_TRANSLATION,
+            translationFirst: this._loadTranslationFirst(),
+            translationFirstInput: DEFAULT_TRANSLATION_FIRST,
 
             // Guest/temp user support
             isTempUser: false,
@@ -400,6 +404,14 @@ export class LLMTranslationView extends Component {
         const raw = window.localStorage?.getItem(SINGLE_LINE_TRANSLATION_STORAGE_KEY);
         if (raw === null || raw === undefined) {
             return DEFAULT_SINGLE_LINE_TRANSLATION;
+        }
+        return raw === "1" || raw === "true";
+    }
+
+    _loadTranslationFirst() {
+        const raw = window.localStorage?.getItem(TRANSLATION_FIRST_STORAGE_KEY);
+        if (raw === null || raw === undefined) {
+            return DEFAULT_TRANSLATION_FIRST;
         }
         return raw === "1" || raw === "true";
     }
@@ -2619,6 +2631,7 @@ export class LLMTranslationView extends Component {
         this.state.submitIntervalInput = String(this.state.submitIntervalMs ?? DEFAULT_SUBMIT_INTERVAL_MS);
         this.state.tableTranslationNewlineInput = !!this.state.tableTranslationNewline;
         this.state.singleLineTranslationInput = !!this.state.singleLineTranslation;
+        this.state.translationFirstInput = !!this.state.translationFirst;
         this.state.showSettingsModal = true;
     }
 
@@ -2638,6 +2651,10 @@ export class LLMTranslationView extends Component {
         this.state.singleLineTranslationInput = !!ev.target.checked;
     }
 
+    onTranslationFirstInput(ev) {
+        this.state.translationFirstInput = !!ev.target.checked;
+    }
+
     onSaveSettings() {
         const raw = Number.parseInt(this.state.submitIntervalInput || "0", 10);
         if (!Number.isFinite(raw) || raw < 0 || raw > 60000) {
@@ -2649,6 +2666,7 @@ export class LLMTranslationView extends Component {
         this.state.submitIntervalMs = raw;
         this.state.tableTranslationNewline = !!this.state.tableTranslationNewlineInput;
         this.state.singleLineTranslation = !!this.state.singleLineTranslationInput;
+        this.state.translationFirst = !!this.state.translationFirstInput;
         window.localStorage?.setItem(SUBMIT_INTERVAL_STORAGE_KEY, String(raw));
         window.localStorage?.setItem(
             TABLE_TRANSLATION_NEWLINE_STORAGE_KEY,
@@ -2657,6 +2675,10 @@ export class LLMTranslationView extends Component {
         window.localStorage?.setItem(
             SINGLE_LINE_TRANSLATION_STORAGE_KEY,
             this.state.singleLineTranslation ? "1" : "0"
+        );
+        window.localStorage?.setItem(
+            TRANSLATION_FIRST_STORAGE_KEY,
+            this.state.translationFirst ? "1" : "0"
         );
         this.state.showSettingsModal = false;
         this.notification.add(_t("Translation settings saved."), { type: "success" });

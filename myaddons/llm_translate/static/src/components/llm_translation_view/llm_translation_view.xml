@@ -492,15 +492,17 @@
                         </t>
                         <t t-else="">
                             <t t-if="state.translationDisplayMode === 'bilingual'">
-                                <div class="llm-bilingual-pane h-100">
+                                <div t-att-class="'llm-bilingual-pane h-100' + (state.translationFirst ? ' llm-bilingual-translation-first' : '')">
                                     <div class="pane-content overflow-auto llm-doc-pages-bg">
                                         <div t-att-style="'transform: scale(' + state.zoomLevel + '); transform-origin: top center; min-width: ' + (100 * state.zoomLevel) + '%; min-height: ' + (100 * state.zoomLevel) + '%;'">
                                             <t t-foreach="pages" t-as="page" t-key="page.pageNumber">
                                                 <div class="llm-doc-page llm-bilingual-page">
                                                     <div class="llm-doc-header" t-if="headerLines.length > 0">
                                                         <t t-foreach="headerLines" t-as="hline" t-key="hline.id">
-                                                            <div class="llm-bilingual-header-source" t-if="hline.source_text" t-out="getSourceHtml(hline)" />
-                                                            <div class="llm-bilingual-header-translated" t-if="getDisplayText(hline)" t-out="getTranslatedHtml(hline)" />
+                                                            <div class="llm-bilingual-header-line">
+                                                                <div class="llm-bilingual-header-source" t-if="hline.source_text" t-out="getSourceHtml(hline)" />
+                                                                <div class="llm-bilingual-header-translated" t-if="getDisplayText(hline)" t-out="getTranslatedHtml(hline)" />
+                                                            </div>
                                                         </t>
                                                     </div>
                                                     <div class="llm-doc-body llm-bilingual-body">
@@ -508,84 +510,86 @@
                                                             <t t-if="elem.type === 'table'">
                                                                 <div class="llm-bilingual-table-pair">
                                                                     <t t-foreach="elem.rows" t-as="trow" t-key="trow.id">
-                                                                        <t t-if="state.tableTranslationNewline">
-                                                                            <table class="llm-table-block llm-bilingual-source-table">
-                                                                                <tbody>
-                                                                                    <tr t-att-data-line-id="trow.id"
-                                                                                        t-on-click="(ev) => this.onSourceClick(trow.id, ev)">
-                                                                                        <t t-foreach="getTableCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
-                                                                                            <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
-                                                                                                t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
-                                                                                                contenteditable="true"
-                                                                                                spellcheck="false"
-                                                                                                t-on-blur="(ev) => this.onSourceTableCellBlur(trow.id, ev)"
-                                                                                                t-out="cellInfo.html" />
-                                                                                        </t>
-                                                                                    </tr>
-                                                                                </tbody>
-                                                                            </table>
-                                                                            <table class="llm-table-block llm-bilingual-translated-table">
-                                                                                <tbody>
-                                                                                    <tr t-att-data-line-id="trow.id"
-                                                                                        t-att-class="{'llm-table-row-pending': !getParaTranslatedText(trow) and trow.state !== 'translating' and trow.state !== 'error', 'llm-table-row-translating': trow.state === 'translating', 'llm-table-row-error': trow.state === 'error'}"
-                                                                                        t-on-click="(ev) => this.onTranslatedClick(trow.id, ev)">
-                                                                                        <t t-foreach="getTranslatedCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
-                                                                                            <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
-                                                                                                t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
-                                                                                                t-att-contenteditable="getParaTranslatedText(trow) ? 'true' : 'false'"
-                                                                                                spellcheck="false"
-                                                                                                t-on-blur="(ev) => this.onTranslatedTableCellBlur(trow.id, ev)">
-                                                                                                <span class="llm-table-cell-content" t-out="cellInfo.html" />
-                                                                                                <button class="llm-table-cell-retranslate"
-                                                                                                    contenteditable="false"
-                                                                                                    title="Re-translate"
-                                                                                                    t-on-click.stop="() => this.onRetranslateLine(trow.id)">
-                                                                                                    <i class="fa fa-refresh" />
-                                                                                                </button>
-                                                                                            </td>
-                                                                                        </t>
-                                                                                    </tr>
-                                                                                </tbody>
-                                                                            </table>
-                                                                        </t>
-                                                                        <t t-else="">
-                                                                            <table class="llm-table-block llm-bilingual-inline-table">
-                                                                                <tbody>
-                                                                                    <tr t-att-data-line-id="trow.id"
-                                                                                        t-att-class="{'llm-table-row-pending': !getParaTranslatedText(trow) and trow.state !== 'translating' and trow.state !== 'error', 'llm-table-row-translating': trow.state === 'translating', 'llm-table-row-error': trow.state === 'error'}"
-                                                                                        t-on-click="(ev) => this.onSourceClick(trow.id, ev)">
-                                                                                        <t t-foreach="getInlineBilingualTableCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
-                                                                                            <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
-                                                                                                t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
-                                                                                                contenteditable="true"
-                                                                                                spellcheck="false"
-                                                                                                t-on-blur="(ev) => this.onSourceTableCellBlur(trow.id, ev)">
-                                                                                                <span class="llm-table-cell-source" t-out="cellInfo.html" />
-                                                                                                <span t-if="cellInfo.translatedText or trow.state === 'translating'"
-                                                                                                    class="llm-table-inline-translation"
-                                                                                                    contenteditable="false">
-                                                                                                    <span class="llm-table-inline-separator"> </span>
-                                                                                                    <span t-if="cellInfo.translatedText"
-                                                                                                        class="llm-table-cell-content"
-                                                                                                        t-out="cellInfo.translatedHtml" />
-                                                                                                    <span t-elif="trow.state === 'translating'"
-                                                                                                        class="text-muted fst-italic llm-translating-breathe">
-                                                                                                        <i class="fa fa-spinner fa-spin me-1" />translating...
-                                                                                                    </span>
-                                                                                                    <button t-if="cellInfo.translatedText"
-                                                                                                        class="llm-table-cell-retranslate"
+                                                                        <div class="llm-bilingual-table-row-pair">
+                                                                            <t t-if="state.tableTranslationNewline">
+                                                                                <table class="llm-table-block llm-bilingual-source-table">
+                                                                                    <tbody>
+                                                                                        <tr t-att-data-line-id="trow.id"
+                                                                                            t-on-click="(ev) => this.onSourceClick(trow.id, ev)">
+                                                                                            <t t-foreach="getTableCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
+                                                                                                <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
+                                                                                                    t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
+                                                                                                    contenteditable="true"
+                                                                                                    spellcheck="false"
+                                                                                                    t-on-blur="(ev) => this.onSourceTableCellBlur(trow.id, ev)"
+                                                                                                    t-out="cellInfo.html" />
+                                                                                            </t>
+                                                                                        </tr>
+                                                                                    </tbody>
+                                                                                </table>
+                                                                                <table class="llm-table-block llm-bilingual-translated-table">
+                                                                                    <tbody>
+                                                                                        <tr t-att-data-line-id="trow.id"
+                                                                                            t-att-class="{'llm-table-row-pending': !getParaTranslatedText(trow) and trow.state !== 'translating' and trow.state !== 'error', 'llm-table-row-translating': trow.state === 'translating', 'llm-table-row-error': trow.state === 'error'}"
+                                                                                            t-on-click="(ev) => this.onTranslatedClick(trow.id, ev)">
+                                                                                            <t t-foreach="getTranslatedCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
+                                                                                                <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
+                                                                                                    t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
+                                                                                                    t-att-contenteditable="getParaTranslatedText(trow) ? 'true' : 'false'"
+                                                                                                    spellcheck="false"
+                                                                                                    t-on-blur="(ev) => this.onTranslatedTableCellBlur(trow.id, ev)">
+                                                                                                    <span class="llm-table-cell-content" t-out="cellInfo.html" />
+                                                                                                    <button class="llm-table-cell-retranslate"
                                                                                                         contenteditable="false"
                                                                                                         title="Re-translate"
                                                                                                         t-on-click.stop="() => this.onRetranslateLine(trow.id)">
                                                                                                         <i class="fa fa-refresh" />
                                                                                                     </button>
-                                                                                                </span>
-                                                                                            </td>
-                                                                                        </t>
-                                                                                    </tr>
-                                                                                </tbody>
-                                                                            </table>
-                                                                        </t>
+                                                                                                </td>
+                                                                                            </t>
+                                                                                        </tr>
+                                                                                    </tbody>
+                                                                                </table>
+                                                                            </t>
+                                                                            <t t-else="">
+                                                                                <table class="llm-table-block llm-bilingual-inline-table">
+                                                                                    <tbody>
+                                                                                        <tr t-att-data-line-id="trow.id"
+                                                                                            t-att-class="{'llm-table-row-pending': !getParaTranslatedText(trow) and trow.state !== 'translating' and trow.state !== 'error', 'llm-table-row-translating': trow.state === 'translating', 'llm-table-row-error': trow.state === 'error'}"
+                                                                                            t-on-click="(ev) => this.onSourceClick(trow.id, ev)">
+                                                                                            <t t-foreach="getInlineBilingualTableCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
+                                                                                                <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
+                                                                                                    t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
+                                                                                                    contenteditable="true"
+                                                                                                    spellcheck="false"
+                                                                                                    t-on-blur="(ev) => this.onSourceTableCellBlur(trow.id, ev)">
+                                                                                                    <span class="llm-table-cell-source" t-out="cellInfo.html" />
+                                                                                                    <span t-if="cellInfo.translatedText or trow.state === 'translating'"
+                                                                                                        class="llm-table-inline-translation"
+                                                                                                        contenteditable="false">
+                                                                                                        <span class="llm-table-inline-separator"> </span>
+                                                                                                        <span t-if="cellInfo.translatedText"
+                                                                                                            class="llm-table-cell-content"
+                                                                                                            t-out="cellInfo.translatedHtml" />
+                                                                                                        <span t-elif="trow.state === 'translating'"
+                                                                                                            class="text-muted fst-italic llm-translating-breathe">
+                                                                                                            <i class="fa fa-spinner fa-spin me-1" />translating...
+                                                                                                        </span>
+                                                                                                        <button t-if="cellInfo.translatedText"
+                                                                                                            class="llm-table-cell-retranslate"
+                                                                                                            contenteditable="false"
+                                                                                                            title="Re-translate"
+                                                                                                            t-on-click.stop="() => this.onRetranslateLine(trow.id)">
+                                                                                                            <i class="fa fa-refresh" />
+                                                                                                        </button>
+                                                                                                    </span>
+                                                                                                </td>
+                                                                                            </t>
+                                                                                        </tr>
+                                                                                    </tbody>
+                                                                                </table>
+                                                                            </t>
+                                                                        </div>
                                                                     </t>
                                                                 </div>
                                                             </t>
@@ -684,8 +688,10 @@
                                                     </div>
                                                     <div class="llm-doc-footer" t-if="footerLines.length > 0">
                                                         <t t-foreach="footerLines" t-as="fline" t-key="fline.id">
-                                                            <div class="llm-bilingual-footer-source" t-if="fline.source_text" t-out="getSourceHtml(fline)" />
-                                                            <div class="llm-bilingual-footer-translated" t-if="getDisplayText(fline)" t-out="getTranslatedHtml(fline)" />
+                                                            <div class="llm-bilingual-footer-line">
+                                                                <div class="llm-bilingual-footer-source" t-if="fline.source_text" t-out="getSourceHtml(fline)" />
+                                                                <div class="llm-bilingual-footer-translated" t-if="getDisplayText(fline)" t-out="getTranslatedHtml(fline)" />
+                                                            </div>
                                                         </t>
                                                     </div>
                                                     <div class="llm-doc-page-num">
@@ -1217,6 +1223,19 @@
                     </div>
                     <div class="form-text">
                         勾选后每次只提交下一条待翻译段落，不再批量翻译。
+                    </div>
+                    <div class="form-check mt-3">
+                        <input id="llm-translation-first"
+                            class="form-check-input"
+                            type="checkbox"
+                            t-att-checked="state.translationFirstInput"
+                            t-on-change="onTranslationFirstInput" />
+                        <label class="form-check-label" for="llm-translation-first">
+                            译文在上
+                        </label>
+                    </div>
+                    <div class="form-text">
+                        勾选后，双语视图中译文显示在原文上方。
                     </div>
                 </div>
                 <div class="llm-settings-modal-footer">
