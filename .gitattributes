@@ -1,0 +1,2 @@
+config/odoo.conf filter=odoo-secrets
+docker-compose.yml filter=odoo-secrets

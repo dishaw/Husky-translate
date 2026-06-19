@@ -20,7 +20,7 @@ services:
       - HOST=db
       - PORT=5432
       - USER=odoo
-      - PASSWORD=odoo
+      - PASSWORD=${ODOO_DB_PASSWORD:-CHANGE_ME}
       - TZ=Asia/Shanghai
     command: odoo -c /etc/odoo/odoo.conf
     healthcheck:
@@ -36,7 +36,7 @@ services:
     container_name: odoo_trans_db
     environment:
       - POSTGRES_DB=postgres
-      - POSTGRES_PASSWORD=odoo
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-CHANGE_ME}
       - POSTGRES_USER=odoo
       - PGDATA=/var/lib/postgresql/data/pgdata
       - TZ=Asia/Shanghai

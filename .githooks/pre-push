@@ -1,0 +1,51 @@
+#!/bin/sh
+set -eu
+
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+sanitizer="$hook_dir/sanitize-secrets.ps1"
+zero=0000000000000000000000000000000000000000
+blocked=0
+
+check_commit_file() {
+  commit=$1
+  path=$2
+
+  if ! git cat-file -e "$commit:$path" 2>/dev/null; then
+    return 0
+  fi
+
+  tmp_orig=${TMPDIR:-/tmp}/odoo-secrets-push-orig.$$
+  tmp_clean=${TMPDIR:-/tmp}/odoo-secrets-push-clean.$$
+
+  git show "$commit:$path" > "$tmp_orig"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$sanitizer" < "$tmp_orig" > "$tmp_clean"
+
+  if ! cmp -s "$tmp_orig" "$tmp_clean"; then
+    echo "Refusing push: $path contains unsanitized secrets in commit $commit" >&2
+    blocked=1
+  fi
+
+  rm -f "$tmp_orig" "$tmp_clean"
+}
+
+while read -r local_ref local_sha remote_ref remote_sha
+do
+  test "$local_sha" != "$zero" || continue
+
+  if test "$remote_sha" = "$zero"; then
+    range=$local_sha
+  else
+    range=$remote_sha..$local_sha
+  fi
+
+  for commit in $(git rev-list "$range")
+  do
+    check_commit_file "$commit" "config/odoo.conf"
+    check_commit_file "$commit" "docker-compose.yml"
+  done
+done
+
+if test "$blocked" -ne 0; then
+  echo "Run git add on the files again, recommit, then push." >&2
+  exit 1
+fi

@@ -534,6 +534,20 @@ class LLMTranslateController(http.Controller):
             "learned": learned,
         }
 
+    @http.route("/llm_translate/prompt/get", type="json", auth="public", methods=["POST"])
+    def get_prompt_settings(self, translation_id):
+        translation = request.env["llm.translation"].sudo().browse(int(translation_id))
+        if not translation.exists():
+            return {"error": "Translation not found"}
+        return translation.get_prompt_settings()
+
+    @http.route("/llm_translate/prompt/update", type="json", auth="public", methods=["POST"])
+    def update_prompt_settings(self, translation_id, prompt_text=None):
+        translation = request.env["llm.translation"].sudo().browse(int(translation_id))
+        if not translation.exists():
+            return {"error": "Translation not found"}
+        return translation.update_prompt_settings(prompt_text=prompt_text)
+
     @http.route("/llm_translate/retry_errors", type="json", auth="public", methods=["POST"])
     def retry_errors(self, translation_id):
         """Reset all error lines to pending so they can be re-translated.
@@ -586,7 +600,13 @@ class LLMTranslateController(http.Controller):
             self._unlock_translation_lock(translation.id)
 
     @http.route("/llm_translate/rebuild", type="json", auth="public", methods=["POST"])
-    def rebuild_document(self, translation_id, export_mode="translated"):
+    def rebuild_document(
+        self,
+        translation_id,
+        export_mode="translated",
+        translation_first=False,
+        table_translation_newline=True,
+    ):
         """Rebuild the translated document (e.g., after manual edits).
 
         Args:
@@ -608,9 +628,21 @@ class LLMTranslateController(http.Controller):
         if not self._try_translation_lock(translation.id):
             return {"error": "Translation is busy. Please wait before rebuilding."}
 
+        def _as_bool(value, default=False):
+            if isinstance(value, bool):
+                return value
+            if value is None:
+                return default
+            if isinstance(value, str):
+                return value.strip().lower() in ("1", "true", "yes", "on")
+            return bool(value)
+
         try:
             if export_mode == "bilingual":
-                translation._finalize_bilingual_translation()
+                translation._finalize_bilingual_translation(
+                    translation_first=_as_bool(translation_first),
+                    table_translation_newline=_as_bool(table_translation_newline, True),
+                )
             else:
                 translation._finalize_translation(force_rebuild=True)
             return request.env["llm.translation"].sudo().get_translation_data(translation.id)
@@ -932,6 +964,49 @@ class LLMTranslateController(http.Controller):
         # Sync updated entry to knowledge collection
         request.env["llm.translation.glossary"]._sync_entry_to_knowledge(entry)
         return {"success": True}
+
+    @http.route("/llm_translate/glossary/extract_candidates", type="json", auth="public", methods=["POST"])
+    def glossary_extract_candidates(self, translation_id, limit=40):
+        """Extract terminology candidates from the current document."""
+        translation = request.env["llm.translation"].sudo().browse(int(translation_id))
+        if not translation.exists():
+            return {"error": "Translation not found"}
+        return translation.extract_terminology_candidates(limit=limit)
+
+    @http.route("/llm_translate/glossary/import_candidates", type="json", auth="public", methods=["POST"])
+    def glossary_import_candidates(self, translation_id, candidates=None):
+        """Save approved terminology candidates into translation memory."""
+        translation = request.env["llm.translation"].sudo().browse(int(translation_id))
+        if not translation.exists():
+            return {"error": "Translation not found"}
+        return translation.import_terminology_candidates(candidates or [])
+
+    @http.route("/llm_translate/glossary/validate_translation", type="json", auth="public", methods=["POST"])
+    def glossary_validate_translation(self, translation_id):
+        """Validate translated lines against mandatory terminology memory."""
+        translation = request.env["llm.translation"].sudo().browse(int(translation_id))
+        if not translation.exists():
+            return {"error": "Translation not found"}
+        return translation.validate_terminology_usage()
+
+    @http.route("/llm_translate/glossary/retranslate_violations", type="json", auth="public", methods=["POST"])
+    def glossary_retranslate_violations(self, translation_id, line_ids=None):
+        """Re-translate lines that failed terminology validation."""
+        translation = request.env["llm.translation"].sudo().browse(int(translation_id))
+        if not translation.exists():
+            return {"error": "Translation not found"}
+        if not self._try_translation_lock(translation.id):
+            return {"error": "Translation is busy. Please wait before re-translating terminology issues."}
+        try:
+            result = translation.retranslate_terminology_violations(line_ids=line_ids or [])
+            result["translation"] = request.env["llm.translation"].sudo().get_translation_data(
+                translation.id
+            )
+            return result
+        except Exception as e:
+            return {"error": str(e)}
+        finally:
+            self._unlock_translation_lock(translation.id)
 
     @http.route("/llm_translate/ocr_block/update", type="json", auth="public", methods=["POST"])
     def update_ocr_block(self, line_id, block_index, x_pct=None, y_pct=None, font_size=None, w_pct=None, h_pct=None):

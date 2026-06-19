@@ -100,6 +100,12 @@ export class LLMTranslationView extends Component {
             glossaryNewTranslated: "",
             glossaryFilter: "",
             glossaryCount: 0,
+            terminologyCandidates: [],
+            terminologyValidationIssues: [],
+            isExtractingTerminology: false,
+            isImportingTerminology: false,
+            isCheckingTerminology: false,
+            isRetranslatingTerminology: false,
 
             // Translation submit pacing
             showSettingsModal: false,
@@ -111,6 +117,11 @@ export class LLMTranslationView extends Component {
             singleLineTranslationInput: DEFAULT_SINGLE_LINE_TRANSLATION,
             translationFirst: this._loadTranslationFirst(),
             translationFirstInput: DEFAULT_TRANSLATION_FIRST,
+            showPromptModal: false,
+            isLoadingPrompt: false,
+            promptText: "",
+            defaultPromptText: "",
+            promptIsCustom: false,
 
             // Guest/temp user support
             isTempUser: false,
@@ -2655,6 +2666,76 @@ export class LLMTranslationView extends Component {
         this.state.translationFirstInput = !!ev.target.checked;
     }
 
+    async onOpenPromptModal() {
+        if (!this.state.currentTranslation?.id) {
+            this.notification.add(_t("Open a translation before editing the prompt."), {
+                type: "warning",
+            });
+            return;
+        }
+        this.state.showPromptModal = true;
+        this.state.isLoadingPrompt = true;
+        try {
+            const result = await rpc("/llm_translate/prompt/get", {
+                translation_id: this.state.currentTranslation.id,
+            });
+            if (result.error) {
+                this.notification.add(result.error, { type: "danger" });
+                this.state.showPromptModal = false;
+                return;
+            }
+            this.state.defaultPromptText = result.default_prompt || "";
+            this.state.promptText = result.current_prompt || result.default_prompt || "";
+            this.state.promptIsCustom = !!result.is_custom;
+        } catch (e) {
+            console.error("Prompt load failed:", e);
+            this.notification.add(_t("Failed to load prompt."), { type: "danger" });
+            this.state.showPromptModal = false;
+        } finally {
+            this.state.isLoadingPrompt = false;
+        }
+    }
+
+    onClosePromptModal() {
+        this.state.showPromptModal = false;
+    }
+
+    onPromptInput(ev) {
+        this.state.promptText = ev.target.value;
+    }
+
+    onResetPromptToDefault() {
+        this.state.promptText = this.state.defaultPromptText || "";
+    }
+
+    async onSavePrompt() {
+        if (!this.state.currentTranslation?.id) return;
+        this.state.isLoadingPrompt = true;
+        try {
+            const defaultPrompt = (this.state.defaultPromptText || "").trim();
+            const promptText = (this.state.promptText || "").trim();
+            const payloadPrompt = promptText === defaultPrompt ? "" : promptText;
+            const result = await rpc("/llm_translate/prompt/update", {
+                translation_id: this.state.currentTranslation.id,
+                prompt_text: payloadPrompt,
+            });
+            if (result.error) {
+                this.notification.add(result.error, { type: "danger" });
+                return;
+            }
+            this.state.defaultPromptText = result.default_prompt || "";
+            this.state.promptText = result.current_prompt || result.default_prompt || "";
+            this.state.promptIsCustom = !!result.is_custom;
+            this.state.showPromptModal = false;
+            this.notification.add(_t("Prompt settings saved."), { type: "success" });
+        } catch (e) {
+            console.error("Prompt save failed:", e);
+            this.notification.add(_t("Failed to save prompt."), { type: "danger" });
+        } finally {
+            this.state.isLoadingPrompt = false;
+        }
+    }
+
     onSaveSettings() {
         const raw = Number.parseInt(this.state.submitIntervalInput || "0", 10);
         if (!Number.isFinite(raw) || raw < 0 || raw > 60000) {
@@ -2722,9 +2803,12 @@ export class LLMTranslationView extends Component {
         }
 
         // For document translations: rebuild via backend
+        const isBilingualExport = this.state.translationDisplayMode === "bilingual";
         const result = await rpc("/llm_translate/rebuild", {
             translation_id: this.state.currentTranslation.id,
-            export_mode: this.state.translationDisplayMode === "bilingual" ? "bilingual" : "translated",
+            export_mode: isBilingualExport ? "bilingual" : "translated",
+            translation_first: !!this.state.translationFirst,
+            table_translation_newline: !!this.state.tableTranslationNewline,
         });
         if (result.error) {
             this.notification.add(result.error, { type: "danger" });
@@ -3113,6 +3197,157 @@ export class LLMTranslationView extends Component {
         } catch (e) {
             console.error("Failed to add glossary entry:", e);
             this.notification.add(_t("Failed to add glossary entry."), { type: "danger" });
+        }
+    }
+
+    async onExtractTerminologyCandidates() {
+        const trans = this.state.currentTranslation;
+        if (!trans?.id) return;
+        this.state.isExtractingTerminology = true;
+        this.state.terminologyValidationIssues = [];
+        try {
+            const result = await rpc("/llm_translate/glossary/extract_candidates", {
+                translation_id: trans.id,
+                limit: 40,
+            });
+            if (result.error) {
+                this.notification.add(result.error, { type: "danger" });
+                return;
+            }
+            this.state.terminologyCandidates = (result.candidates || []).map((candidate, index) => ({
+                ...candidate,
+                _key: `${candidate.source_phrase || "term"}-${index}`,
+            }));
+            const count = this.state.terminologyCandidates.length;
+            this.notification.add(
+                count ? _t("Terminology candidates extracted.") : _t("No new terminology candidates found."),
+                { type: count ? "success" : "info" },
+            );
+        } catch (e) {
+            console.error("Terminology extraction failed:", e);
+            this.notification.add(_t("Failed to extract terminology."), { type: "danger" });
+        } finally {
+            this.state.isExtractingTerminology = false;
+        }
+    }
+
+    onTerminologyCandidateSourceInput(index, ev) {
+        const candidate = this.state.terminologyCandidates[index];
+        if (candidate) {
+            candidate.source_phrase = ev.target.value;
+        }
+    }
+
+    onTerminologyCandidateTranslationInput(index, ev) {
+        const candidate = this.state.terminologyCandidates[index];
+        if (candidate) {
+            candidate.translated_phrase = ev.target.value;
+        }
+    }
+
+    onDismissTerminologyCandidate(index) {
+        this.state.terminologyCandidates.splice(index, 1);
+    }
+
+    async onImportTerminologyCandidates(index = null) {
+        const trans = this.state.currentTranslation;
+        if (!trans?.id) return;
+        const candidates = index === null
+            ? this.state.terminologyCandidates
+            : [this.state.terminologyCandidates[index]];
+        const validCandidates = candidates.filter(
+            (candidate) => (candidate?.source_phrase || "").trim() &&
+                (candidate?.translated_phrase || "").trim(),
+        );
+        if (!validCandidates.length) {
+            this.notification.add(_t("Please keep at least one source/translation pair."), {
+                type: "warning",
+            });
+            return;
+        }
+        this.state.isImportingTerminology = true;
+        try {
+            const result = await rpc("/llm_translate/glossary/import_candidates", {
+                translation_id: trans.id,
+                candidates: validCandidates,
+            });
+            if (result.error) {
+                this.notification.add(result.error, { type: "danger" });
+                return;
+            }
+            if (index === null) {
+                this.state.terminologyCandidates = [];
+            } else {
+                this.state.terminologyCandidates.splice(index, 1);
+            }
+            await this.loadGlossaryEntries();
+            await this._loadGlossaryCount();
+            this.notification.add(
+                _t("Terminology saved to translation memory."),
+                { type: "success" },
+            );
+        } catch (e) {
+            console.error("Terminology import failed:", e);
+            this.notification.add(_t("Failed to save terminology."), { type: "danger" });
+        } finally {
+            this.state.isImportingTerminology = false;
+        }
+    }
+
+    async onValidateTerminology() {
+        const trans = this.state.currentTranslation;
+        if (!trans?.id) return;
+        this.state.isCheckingTerminology = true;
+        try {
+            const result = await rpc("/llm_translate/glossary/validate_translation", {
+                translation_id: trans.id,
+            });
+            if (result.error) {
+                this.notification.add(result.error, { type: "danger" });
+                return;
+            }
+            this.state.terminologyValidationIssues = result.issues || [];
+            const count = this.state.terminologyValidationIssues.length;
+            this.notification.add(
+                count ? _t("Terminology issues found.") : _t("Terminology check passed."),
+                { type: count ? "warning" : "success" },
+            );
+        } catch (e) {
+            console.error("Terminology validation failed:", e);
+            this.notification.add(_t("Failed to validate terminology."), { type: "danger" });
+        } finally {
+            this.state.isCheckingTerminology = false;
+        }
+    }
+
+    async onRetranslateTerminologyIssues() {
+        const trans = this.state.currentTranslation;
+        if (!trans?.id || !this.state.terminologyValidationIssues.length) return;
+        const lineIds = this.state.terminologyValidationIssues.map((issue) => issue.line_id);
+        this.state.isRetranslatingTerminology = true;
+        try {
+            const result = await rpc("/llm_translate/glossary/retranslate_violations", {
+                translation_id: trans.id,
+                line_ids: lineIds,
+            });
+            if (result.error) {
+                this.notification.add(result.error, { type: "danger" });
+                return;
+            }
+            if (result.translation) {
+                this.state.currentTranslation = result.translation;
+            }
+            this.state.terminologyValidationIssues = result.remaining?.issues || [];
+            this.notification.add(_t("Terminology issue lines re-translated."), {
+                type: "success",
+            });
+        } catch (e) {
+            console.error("Terminology retranslation failed:", e);
+            this.notification.add(_t("Failed to re-translate terminology issues."), {
+                type: "danger",
+            });
+        } finally {
+            this.state.isRetranslatingTerminology = false;
         }
     }
 

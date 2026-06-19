@@ -509,87 +509,107 @@
                                                         <t t-foreach="getPageElements(page)" t-as="elem" t-key="elem.key">
                                                             <t t-if="elem.type === 'table'">
                                                                 <div class="llm-bilingual-table-pair">
-                                                                    <t t-foreach="elem.rows" t-as="trow" t-key="trow.id">
-                                                                        <div class="llm-bilingual-table-row-pair">
-                                                                            <t t-if="state.tableTranslationNewline">
-                                                                                <table class="llm-table-block llm-bilingual-source-table">
-                                                                                    <tbody>
-                                                                                        <tr t-att-data-line-id="trow.id"
-                                                                                            t-on-click="(ev) => this.onSourceClick(trow.id, ev)">
-                                                                                            <t t-foreach="getTableCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
-                                                                                                <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
-                                                                                                    t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
-                                                                                                    contenteditable="true"
-                                                                                                    spellcheck="false"
-                                                                                                    t-on-blur="(ev) => this.onSourceTableCellBlur(trow.id, ev)"
-                                                                                                    t-out="cellInfo.html" />
-                                                                                            </t>
-                                                                                        </tr>
-                                                                                    </tbody>
-                                                                                </table>
-                                                                                <table class="llm-table-block llm-bilingual-translated-table">
-                                                                                    <tbody>
-                                                                                        <tr t-att-data-line-id="trow.id"
-                                                                                            t-att-class="{'llm-table-row-pending': !getParaTranslatedText(trow) and trow.state !== 'translating' and trow.state !== 'error', 'llm-table-row-translating': trow.state === 'translating', 'llm-table-row-error': trow.state === 'error'}"
-                                                                                            t-on-click="(ev) => this.onTranslatedClick(trow.id, ev)">
-                                                                                            <t t-foreach="getTranslatedCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
-                                                                                                <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
-                                                                                                    t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
-                                                                                                    t-att-contenteditable="getParaTranslatedText(trow) ? 'true' : 'false'"
-                                                                                                    spellcheck="false"
-                                                                                                    t-on-blur="(ev) => this.onTranslatedTableCellBlur(trow.id, ev)">
-                                                                                                    <span class="llm-table-cell-content" t-out="cellInfo.html" />
-                                                                                                    <button class="llm-table-cell-retranslate"
+                                                                    <t t-if="state.tableTranslationNewline">
+                                                                        <table class="llm-table-block llm-bilingual-source-table">
+                                                                            <tbody>
+                                                                                <t t-foreach="elem.rows" t-as="trow" t-key="trow.id">
+                                                                                    <tr t-att-data-line-id="trow.id"
+                                                                                        t-on-click="(ev) => this.onSourceClick(trow.id, ev)">
+                                                                                        <t t-foreach="getTableCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
+                                                                                            <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
+                                                                                                t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
+                                                                                                contenteditable="true"
+                                                                                                spellcheck="false"
+                                                                                                t-on-blur="(ev) => this.onSourceTableCellBlur(trow.id, ev)"
+                                                                                                t-out="cellInfo.html" />
+                                                                                        </t>
+                                                                                    </tr>
+                                                                                </t>
+                                                                            </tbody>
+                                                                        </table>
+                                                                        <table class="llm-table-block llm-bilingual-translated-table">
+                                                                            <tbody>
+                                                                                <t t-foreach="elem.rows" t-as="trow" t-key="trow.id">
+                                                                                    <tr t-att-data-line-id="trow.id"
+                                                                                        t-att-class="{'llm-table-row-pending': !getParaTranslatedText(trow) and trow.state !== 'translating' and trow.state !== 'error', 'llm-table-row-translating': trow.state === 'translating', 'llm-table-row-error': trow.state === 'error'}"
+                                                                                        t-on-click="(ev) => this.onTranslatedClick(trow.id, ev)">
+                                                                                        <t t-foreach="getTranslatedCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
+                                                                                            <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
+                                                                                                t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
+                                                                                                t-att-contenteditable="getParaTranslatedText(trow) ? 'true' : 'false'"
+                                                                                                spellcheck="false"
+                                                                                                t-on-blur="(ev) => this.onTranslatedTableCellBlur(trow.id, ev)">
+                                                                                                <span class="llm-table-cell-content" t-out="cellInfo.html" />
+                                                                                                <button class="llm-table-cell-retranslate"
+                                                                                                    contenteditable="false"
+                                                                                                    title="Re-translate"
+                                                                                                    t-on-click.stop="() => this.onRetranslateLine(trow.id)">
+                                                                                                    <i class="fa fa-refresh" />
+                                                                                                </button>
+                                                                                            </td>
+                                                                                        </t>
+                                                                                    </tr>
+                                                                                </t>
+                                                                            </tbody>
+                                                                        </table>
+                                                                    </t>
+                                                                    <t t-else="">
+                                                                        <table class="llm-table-block llm-bilingual-inline-table">
+                                                                            <tbody>
+                                                                                <t t-foreach="elem.rows" t-as="trow" t-key="trow.id">
+                                                                                    <tr t-att-data-line-id="trow.id"
+                                                                                        t-att-class="{'llm-table-row-pending': !getParaTranslatedText(trow) and trow.state !== 'translating' and trow.state !== 'error', 'llm-table-row-translating': trow.state === 'translating', 'llm-table-row-error': trow.state === 'error'}"
+                                                                                        t-on-click="(ev) => this.onSourceClick(trow.id, ev)">
+                                                                                        <t t-foreach="getInlineBilingualTableCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
+                                                                                            <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
+                                                                                                t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
+                                                                                                contenteditable="true"
+                                                                                                spellcheck="false"
+                                                                                                t-on-blur="(ev) => this.onSourceTableCellBlur(trow.id, ev)">
+                                                                                                <span t-if="state.translationFirst and (cellInfo.translatedText or trow.state === 'translating')"
+                                                                                                    class="llm-table-inline-translation"
+                                                                                                    contenteditable="false">
+                                                                                                    <span t-if="cellInfo.translatedText"
+                                                                                                        class="llm-table-cell-content"
+                                                                                                        t-out="cellInfo.translatedHtml" />
+                                                                                                    <span t-elif="trow.state === 'translating'"
+                                                                                                        class="text-muted fst-italic llm-translating-breathe">
+                                                                                                        <i class="fa fa-spinner fa-spin me-1" />translating...
+                                                                                                    </span>
+                                                                                                    <button t-if="cellInfo.translatedText"
+                                                                                                        class="llm-table-cell-retranslate"
                                                                                                         contenteditable="false"
                                                                                                         title="Re-translate"
                                                                                                         t-on-click.stop="() => this.onRetranslateLine(trow.id)">
                                                                                                         <i class="fa fa-refresh" />
                                                                                                     </button>
-                                                                                                </td>
-                                                                                            </t>
-                                                                                        </tr>
-                                                                                    </tbody>
-                                                                                </table>
-                                                                            </t>
-                                                                            <t t-else="">
-                                                                                <table class="llm-table-block llm-bilingual-inline-table">
-                                                                                    <tbody>
-                                                                                        <tr t-att-data-line-id="trow.id"
-                                                                                            t-att-class="{'llm-table-row-pending': !getParaTranslatedText(trow) and trow.state !== 'translating' and trow.state !== 'error', 'llm-table-row-translating': trow.state === 'translating', 'llm-table-row-error': trow.state === 'error'}"
-                                                                                            t-on-click="(ev) => this.onSourceClick(trow.id, ev)">
-                                                                                            <t t-foreach="getInlineBilingualTableCellsWithMeta(trow)" t-as="cellInfo" t-key="cellInfo_index">
-                                                                                                <td t-att-colspan="cellInfo.gridSpan > 1 ? cellInfo.gridSpan : undefined"
-                                                                                                    t-att-rowspan="cellInfo.rowSpan > 1 ? cellInfo.rowSpan : undefined"
-                                                                                                    contenteditable="true"
-                                                                                                    spellcheck="false"
-                                                                                                    t-on-blur="(ev) => this.onSourceTableCellBlur(trow.id, ev)">
-                                                                                                    <span class="llm-table-cell-source" t-out="cellInfo.html" />
-                                                                                                    <span t-if="cellInfo.translatedText or trow.state === 'translating'"
-                                                                                                        class="llm-table-inline-translation"
-                                                                                                        contenteditable="false">
-                                                                                                        <span class="llm-table-inline-separator"> </span>
-                                                                                                        <span t-if="cellInfo.translatedText"
-                                                                                                            class="llm-table-cell-content"
-                                                                                                            t-out="cellInfo.translatedHtml" />
-                                                                                                        <span t-elif="trow.state === 'translating'"
-                                                                                                            class="text-muted fst-italic llm-translating-breathe">
-                                                                                                            <i class="fa fa-spinner fa-spin me-1" />translating...
-                                                                                                        </span>
-                                                                                                        <button t-if="cellInfo.translatedText"
-                                                                                                            class="llm-table-cell-retranslate"
-                                                                                                            contenteditable="false"
-                                                                                                            title="Re-translate"
-                                                                                                            t-on-click.stop="() => this.onRetranslateLine(trow.id)">
-                                                                                                            <i class="fa fa-refresh" />
-                                                                                                        </button>
+                                                                                                </span>
+                                                                                                <span class="llm-table-cell-source" t-out="cellInfo.html" />
+                                                                                                <span t-if="!state.translationFirst and (cellInfo.translatedText or trow.state === 'translating')"
+                                                                                                    class="llm-table-inline-translation"
+                                                                                                    contenteditable="false">
+                                                                                                    <span class="llm-table-inline-separator"> </span>
+                                                                                                    <span t-if="cellInfo.translatedText"
+                                                                                                        class="llm-table-cell-content"
+                                                                                                        t-out="cellInfo.translatedHtml" />
+                                                                                                    <span t-elif="trow.state === 'translating'"
+                                                                                                        class="text-muted fst-italic llm-translating-breathe">
+                                                                                                        <i class="fa fa-spinner fa-spin me-1" />translating...
                                                                                                     </span>
-                                                                                                </td>
-                                                                                            </t>
-                                                                                        </tr>
-                                                                                    </tbody>
-                                                                                </table>
-                                                                            </t>
-                                                                        </div>
+                                                                                                    <button t-if="cellInfo.translatedText"
+                                                                                                        class="llm-table-cell-retranslate"
+                                                                                                        contenteditable="false"
+                                                                                                        title="Re-translate"
+                                                                                                        t-on-click.stop="() => this.onRetranslateLine(trow.id)">
+                                                                                                        <i class="fa fa-refresh" />
+                                                                                                    </button>
+                                                                                                </span>
+                                                                                            </td>
+                                                                                        </t>
+                                                                                    </tr>
+                                                                                </t>
+                                                                            </tbody>
+                                                                        </table>
                                                                     </t>
                                                                 </div>
                                                             </t>
@@ -1089,6 +1109,129 @@
                     </div>
                 </div>
 
+                <!-- Terminology control workflow -->
+                <div class="llm-terminology-tools p-2 border-bottom">
+                    <div class="d-flex flex-wrap gap-2 align-items-center">
+                        <button class="btn btn-sm btn-outline-primary"
+                            t-on-click="onExtractTerminologyCandidates"
+                            t-att-disabled="state.isExtractingTerminology or state.isImportingTerminology">
+                            <i t-if="state.isExtractingTerminology" class="fa fa-spinner fa-spin me-1" />
+                            <i t-else="" class="fa fa-magic me-1" />
+                            Extract Terms
+                        </button>
+                        <button class="btn btn-sm btn-outline-success"
+                            t-if="state.terminologyCandidates.length > 0"
+                            t-on-click="() => this.onImportTerminologyCandidates()"
+                            t-att-disabled="state.isImportingTerminology">
+                            <i t-if="state.isImportingTerminology" class="fa fa-spinner fa-spin me-1" />
+                            <i t-else="" class="fa fa-check me-1" />
+                            Save All Candidates
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary"
+                            t-on-click="onValidateTerminology"
+                            t-att-disabled="state.isCheckingTerminology">
+                            <i t-if="state.isCheckingTerminology" class="fa fa-spinner fa-spin me-1" />
+                            <i t-else="" class="fa fa-search me-1" />
+                            Check Usage
+                        </button>
+                        <button class="btn btn-sm btn-warning"
+                            t-if="state.terminologyValidationIssues.length > 0"
+                            t-on-click="onRetranslateTerminologyIssues"
+                            t-att-disabled="state.isRetranslatingTerminology">
+                            <i t-if="state.isRetranslatingTerminology" class="fa fa-spinner fa-spin me-1" />
+                            <i t-else="" class="fa fa-refresh me-1" />
+                            Re-translate Issues
+                        </button>
+                        <span class="small text-muted ms-auto">
+                            <t t-if="state.terminologyCandidates.length > 0">
+                                <t t-esc="state.terminologyCandidates.length" /> candidates
+                            </t>
+                            <t t-if="state.terminologyValidationIssues.length > 0">
+                                <t t-esc="state.terminologyValidationIssues.length" /> issues
+                            </t>
+                        </span>
+                    </div>
+                    <div class="form-text mt-1">
+                        Extract candidates first, review/edit them, save approved terms, then check whether the translation obeys them.
+                    </div>
+                </div>
+
+                <div t-if="state.terminologyCandidates.length > 0"
+                    class="llm-terminology-candidates border-bottom">
+                    <div class="px-3 py-2 small fw-semibold bg-light">
+                        Terminology Candidates
+                    </div>
+                    <table class="table table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 28%">Source Term</th>
+                                <th style="width: 28%">Translation</th>
+                                <th>Reason</th>
+                                <th style="width: 12%" class="text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="state.terminologyCandidates" t-as="candidate"
+                                t-key="candidate._key">
+                                <tr>
+                                    <td>
+                                        <input class="form-control form-control-sm"
+                                            t-att-value="candidate.source_phrase"
+                                            t-on-input="(ev) => this.onTerminologyCandidateSourceInput(candidate_index, ev)" />
+                                    </td>
+                                    <td>
+                                        <input class="form-control form-control-sm"
+                                            t-att-value="candidate.translated_phrase"
+                                            t-on-input="(ev) => this.onTerminologyCandidateTranslationInput(candidate_index, ev)" />
+                                    </td>
+                                    <td class="small text-muted" t-esc="candidate.reason" />
+                                    <td class="text-center">
+                                        <button class="btn btn-sm btn-link text-success p-0 me-2"
+                                            t-on-click="() => this.onImportTerminologyCandidates(candidate_index)"
+                                            title="Save this term">
+                                            <i class="fa fa-check" />
+                                        </button>
+                                        <button class="btn btn-sm btn-link text-muted p-0"
+                                            t-on-click="() => this.onDismissTerminologyCandidate(candidate_index)"
+                                            title="Ignore">
+                                            <i class="fa fa-times" />
+                                        </button>
+                                    </td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div t-if="state.terminologyValidationIssues.length > 0"
+                    class="llm-terminology-issues border-bottom">
+                    <div class="px-3 py-2 small fw-semibold text-bg-warning">
+                        Terminology Usage Issues
+                    </div>
+                    <table class="table table-sm mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th style="width: 8%">#</th>
+                                <th style="width: 30%">Required Terms</th>
+                                <th>Source</th>
+                                <th>Current Translation</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="state.terminologyValidationIssues" t-as="issue"
+                                t-key="issue.line_id">
+                                <tr>
+                                    <td class="small text-muted" t-esc="issue.sequence" />
+                                    <td class="small fw-semibold"
+                                        t-esc="issue.missing_terms.map((term) => term.source_phrase + ' → ' + term.expected_translation).join(', ')" />
+                                    <td class="small" t-esc="issue.source_text" />
+                                    <td class="small text-danger" t-esc="issue.translated_text" />
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </div>
+
                 <!-- Search/Filter -->
                 <div class="p-2 border-bottom">
                     <input type="text" class="form-control form-control-sm"
@@ -1237,6 +1380,20 @@
                     <div class="form-text">
                         勾选后，双语视图中译文显示在原文上方。
                     </div>
+                    <div class="mt-3 pt-3 border-top">
+                        <div class="d-flex justify-content-between align-items-center gap-2">
+                            <div>
+                                <div class="fw-semibold small">翻译提示词</div>
+                                <div class="form-text m-0">
+                                    查看或自定义当前翻译任务使用的系统提示词。
+                                </div>
+                            </div>
+                            <button class="btn btn-sm btn-outline-primary"
+                                t-on-click="onOpenPromptModal">
+                                <i class="fa fa-pencil me-1" />编辑提示词
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="llm-settings-modal-footer">
                     <button class="btn btn-sm btn-outline-secondary" t-on-click="onCloseSettings">
@@ -1245,6 +1402,54 @@
                     <button class="btn btn-sm btn-primary" t-on-click="onSaveSettings">
                         Save
                     </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Prompt Settings Modal -->
+        <div t-if="state.showPromptModal" class="llm-prompt-modal-backdrop"
+             t-on-click.self="onClosePromptModal">
+            <div class="llm-prompt-modal">
+                <div class="llm-prompt-modal-header">
+                    <span><i class="fa fa-pencil me-2" />翻译提示词</span>
+                    <button class="btn-close" t-on-click="onClosePromptModal" />
+                </div>
+                <div class="llm-prompt-modal-body">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="small text-muted">
+                            支持 <code>{source_lang}</code> 和 <code>{target_lang}</code> 占位符；术语库和批量规则会自动追加。
+                        </div>
+                        <span t-if="state.promptIsCustom" class="badge text-bg-info">自定义</span>
+                        <span t-else="" class="badge text-bg-secondary">默认</span>
+                    </div>
+                    <t t-if="state.isLoadingPrompt">
+                        <div class="d-flex align-items-center justify-content-center py-5">
+                            <i class="fa fa-spinner fa-spin me-2" />正在加载提示词...
+                        </div>
+                    </t>
+                    <t t-else="">
+                        <textarea class="form-control llm-prompt-textarea"
+                            spellcheck="false"
+                            t-model="state.promptText" />
+                    </t>
+                </div>
+                <div class="llm-prompt-modal-footer">
+                    <button class="btn btn-sm btn-outline-secondary"
+                        t-on-click="onResetPromptToDefault"
+                        t-att-disabled="state.isLoadingPrompt">
+                        恢复默认
+                    </button>
+                    <div class="ms-auto d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" t-on-click="onClosePromptModal">
+                            取消
+                        </button>
+                        <button class="btn btn-sm btn-primary"
+                            t-on-click="onSavePrompt"
+                            t-att-disabled="state.isLoadingPrompt">
+                            <i t-if="state.isLoadingPrompt" class="fa fa-spinner fa-spin me-1" />
+                            保存提示词
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

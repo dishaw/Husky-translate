@@ -1,0 +1,55 @@
+#!/bin/sh
+set -eu
+
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+sanitizer="$hook_dir/sanitize-secrets.ps1"
+
+sanitize_staged_file() {
+  path=$1
+
+  status=$(git diff --cached --name-status -- "$path" | awk 'NR == 1 {print $1}')
+  case "$status" in
+    ""|D*) return 0 ;;
+  esac
+
+  mode=$(git ls-files -s -- "$path" | awk 'NR == 1 {print $1}')
+  test -n "$mode" || mode=100644
+
+  tmp=${TMPDIR:-/tmp}/odoo-secrets-clean.$$
+  git show ":$path" |
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$sanitizer" > "$tmp"
+  oid=$(git hash-object -w --stdin < "$tmp")
+  rm -f "$tmp"
+
+  git update-index --add --cacheinfo "$mode,$oid,$path"
+  echo "sanitized staged secrets in $path"
+}
+
+sanitize_staged_file "config/odoo.conf"
+sanitize_staged_file "docker-compose.yml"
+
+check_staged_file_clean() {
+  path=$1
+
+  if ! git cat-file -e ":$path" 2>/dev/null; then
+    return 0
+  fi
+
+  tmp_orig=${TMPDIR:-/tmp}/odoo-secrets-commit-orig.$$
+  tmp_clean=${TMPDIR:-/tmp}/odoo-secrets-commit-clean.$$
+
+  git show ":$path" > "$tmp_orig"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$sanitizer" < "$tmp_orig" > "$tmp_clean"
+
+  if ! cmp -s "$tmp_orig" "$tmp_clean"; then
+    echo "Refusing commit: staged Odoo/Postgres secrets are still present in $path." >&2
+    echo "Check .githooks/sanitize-secrets.ps1 and stage the files again." >&2
+    rm -f "$tmp_orig" "$tmp_clean"
+    exit 1
+  fi
+
+  rm -f "$tmp_orig" "$tmp_clean"
+}
+
+check_staged_file_clean "config/odoo.conf"
+check_staged_file_clean "docker-compose.yml"

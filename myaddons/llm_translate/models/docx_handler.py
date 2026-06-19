@@ -2560,12 +2560,11 @@ def rebuild_docx_from_original(original_content, rebuild_data):
 def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
     """Build a bilingual DOCX by cloning the original document structure.
 
-    The original content is kept in place. For each translated body paragraph,
-    a cloned paragraph is inserted immediately after the source paragraph and
-    only the clone's text is replaced. For tables, the whole source table is
-    cloned once after the source table and translated row/cell text is written
-    into the cloned table. This preserves the original template, section setup,
-    styles, tables, images, and most document-level formatting.
+    The original content is kept in place. Translated body paragraphs are cloned
+    before or after the source paragraph according to the bilingual view order.
+    For tables, the default view clones the whole source table before/after the
+    source table and writes translated row/cell text into the clone. This keeps
+    the downloaded document aligned with the on-screen bilingual table layout.
     """
     if Document is None:
         raise ImportError("python-docx is required. Install with: pip install python-docx")
@@ -2574,8 +2573,22 @@ def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
     from lxml import etree
     from docx.text.paragraph import Paragraph
 
+    def _as_bool(value, default=False):
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return default
+        if isinstance(value, str):
+            return value.strip().lower() in ("1", "true", "yes", "on")
+        return bool(value)
+
     paragraph_translations = bilingual_data.get("paragraphs", {})
     table_translations = bilingual_data.get("tables", {})
+    translation_first = _as_bool(bilingual_data.get("translation_first"))
+    table_translation_newline = _as_bool(
+        bilingual_data.get("table_translation_newline"),
+        True,
+    )
 
     NSMAP = {
         'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
@@ -2706,6 +2719,20 @@ def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
             return row_data.get("cells", [])
         return row_data or []
 
+    def _write_translated_row_cells(row, translated_cells):
+        seen_cells = set()
+        write_idx = 0
+        for cell in row.cells:
+            if id(cell._tc) in seen_cells:
+                continue
+            seen_cells.add(id(cell._tc))
+            text = translated_cells[write_idx] if write_idx < len(translated_cells) else ""
+            write_idx += 1
+            if cell.paragraphs:
+                _replace_para_text(cell.paragraphs[0], text)
+                for cp in cell.paragraphs[1:]:
+                    _replace_para_text(cp, "")
+
     doc = Document(io.BytesIO(original_content))
 
     for para_idx, para in list(enumerate(doc.paragraphs)):
@@ -2715,7 +2742,10 @@ def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
         if not _strip_tags(translated).strip():
             continue
         new_p = deepcopy(para._p)
-        para._p.addnext(new_p)
+        if translation_first:
+            para._p.addprevious(new_p)
+        else:
+            para._p.addnext(new_p)
         new_para = Paragraph(new_p, para._parent)
         _remove_paragraph_numbering(new_para)
         _replace_para_text(new_para, translated)
@@ -2728,8 +2758,30 @@ def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
             rows_data = table_translations.get(tbl_key, table_translations.get(tbl_idx, {}))
 
             try:
+                if table_translation_newline:
+                    from docx.table import Table
+                    new_tbl = deepcopy(table._tbl)
+                    if translation_first:
+                        table._tbl.addprevious(new_tbl)
+                    else:
+                        table._tbl.addnext(new_tbl)
+                    translated_table = Table(new_tbl, table._parent)
+                    for row_idx, row in enumerate(translated_table.rows):
+                        row_key = str(row_idx)
+                        if row_key not in rows_data and row_idx not in rows_data:
+                            continue
+                        translated_cells = _cell_texts_for_row(
+                            rows_data.get(row_key, rows_data.get(row_idx))
+                        )
+                        _write_translated_row_cells(row, translated_cells)
+                    continue
+
                 from docx.table import _Row
-                for row_idx, row in reversed(list(enumerate(table.rows))):
+                row_items = list(enumerate(table.rows))
+                if not translation_first:
+                    row_items = list(reversed(row_items))
+
+                for row_idx, row in row_items:
                     row_key = str(row_idx)
                     if row_key not in rows_data and row_idx not in rows_data:
                         continue
@@ -2738,22 +2790,12 @@ def rebuild_bilingual_docx_from_original(original_content, bilingual_data):
                         continue
 
                     new_tr = deepcopy(row._tr)
-                    row._tr.addnext(new_tr)
+                    if translation_first:
+                        row._tr.addprevious(new_tr)
+                    else:
+                        row._tr.addnext(new_tr)
                     translated_row = _Row(new_tr, table)
-                    seen_cells = set()
-                    write_idx = 0
-                    for cell in translated_row.cells:
-                        if id(cell._tc) in seen_cells:
-                            continue
-                        seen_cells.add(id(cell._tc))
-                        if write_idx >= len(translated_cells):
-                            break
-                        text = translated_cells[write_idx]
-                        write_idx += 1
-                        if cell.paragraphs:
-                            _replace_para_text(cell.paragraphs[0], text)
-                            for cp in cell.paragraphs[1:]:
-                                _replace_para_text(cp, "")
+                    _write_translated_row_cells(translated_row, translated_cells)
             except Exception:
                 _logger.warning("Failed to insert bilingual table rows for table %s", tbl_idx, exc_info=True)
 

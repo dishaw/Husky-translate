@@ -180,6 +180,12 @@ class LLMTranslation(models.Model):
              "Will be searched before translating each paragraph to ensure "
              "consistent terminology usage.",
     )
+    custom_system_prompt = fields.Text(
+        string="Custom Translation Prompt",
+        help="Optional task-specific system prompt. Supports {source_lang} and "
+             "{target_lang} placeholders. Dynamic glossary and batch rules are "
+             "appended automatically during translation.",
+    )
 
     # Project for saving files
     project_id = fields.Many2one(
@@ -1219,20 +1225,313 @@ class LLMTranslation(models.Model):
             _logger.warning("Translation memory lookup failed: %s", e)
             return ""
 
+    def _parse_terminology_json(self, text):
+        """Parse a terminology JSON response from the LLM."""
+        if not text:
+            return []
+
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+        block = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+        if block:
+            text = block.group(1).strip()
+        else:
+            obj = re.search(r"\{.*\}", text, re.DOTALL)
+            arr = re.search(r"\[.*\]", text, re.DOTALL)
+            if obj:
+                text = obj.group(0)
+            elif arr:
+                text = arr.group(0)
+
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, TypeError) as e:
+            _logger.warning("Failed to parse terminology JSON: %s — raw: %s", e, text[:300])
+            return []
+
+        if isinstance(data, dict):
+            items = data.get("terms") or data.get("candidates") or data.get("terminology") or []
+        elif isinstance(data, list):
+            items = data
+        else:
+            items = []
+
+        return items if isinstance(items, list) else []
+
+    def _collect_terminology_source_sample(self, max_chars=12000):
+        """Collect representative source text for terminology extraction."""
+        self.ensure_one()
+        parts = []
+        total = 0
+        for line in self.line_ids.sorted("sequence"):
+            if line.is_empty or line.line_type == "image_ocr":
+                continue
+            text = (line.source_text or "").strip()
+            if not text:
+                continue
+            text = re.sub(r"\s*\[CELL\]\s*", " | ", text)
+            if total + len(text) > max_chars:
+                remaining = max_chars - total
+                if remaining > 80:
+                    parts.append(text[:remaining])
+                break
+            parts.append(text)
+            total += len(text) + 1
+        return "\n".join(parts)
+
+    def extract_terminology_candidates(self, limit=40):
+        """Extract document-level terminology candidates without saving them."""
+        self.ensure_one()
+        limit = max(1, min(int(limit or 40), 80))
+        source_text = self._collect_terminology_source_sample()
+        if not source_text:
+            return {"candidates": [], "error": _("No source text available.")}
+        if not self.provider_id or not self.model_id:
+            return {"candidates": [], "error": _("Please select a provider and model first.")}
+
+        source_lang = self._get_source_lang_name()
+        target_lang = self._get_target_lang_name()
+        existing_entries = self.env["llm.translation.glossary"].sudo().search([
+            ("active", "=", True),
+            ("source_lang", "=", self.source_lang or "en"),
+            ("target_lang", "=", self.target_lang or "zh"),
+        ])
+        existing_terms = {
+            (entry.source_phrase or entry.source_text or "").strip()
+            for entry in existing_entries
+            if (entry.source_phrase or entry.source_text)
+        }
+
+        prompt = (
+            "Extract important document terminology for a translation memory.\n"
+            f"Source language: {source_lang}\n"
+            f"Target language: {target_lang}\n\n"
+            "Focus on domain-specific equipment names, part names, technical "
+            "parameters, process terms, material names, measurement labels, and "
+            "short noun phrases that must be translated consistently.\n"
+            "Avoid ordinary sentences, pure numbers, units alone, dates, and very "
+            "generic words.\n"
+            "Return only terminology that appears verbatim in SOURCE TEXT.\n"
+            "Suggest the best target-language translation for each term.\n\n"
+            f"SOURCE TEXT:\n{source_text}\n\n"
+            "Respond with valid JSON only, in this exact shape:\n"
+            "{\n"
+            '  "terms": [\n'
+            '    {"source_phrase": "源文术语", "translated_phrase": "Target term", '
+            '"reason": "brief reason", "confidence": 0.0}\n'
+            "  ]\n"
+            "}\n"
+            f"Return at most {limit} terms. Prefer longer and more specific terms "
+            "over their shorter sub-terms."
+        )
+
+        try:
+            response = self.provider_id.chat(
+                self.env["mail.message"],
+                model=self.model_id,
+                stream=False,
+                tools=None,
+                prepend_messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are a senior technical translator and terminology "
+                            "manager. Always respond with valid JSON only."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+            )
+            raw_text = self._extract_response_text(response)
+        except Exception as e:
+            _logger.warning("Terminology extraction failed: %s", e)
+            return {"candidates": [], "error": str(e)}
+
+        candidates = []
+        seen = set()
+        source_no_space = re.sub(r"\s+", "", source_text)
+        for item in self._parse_terminology_json(raw_text):
+            if not isinstance(item, dict):
+                continue
+            source_phrase = (item.get("source_phrase") or item.get("source") or "").strip()
+            translated_phrase = (
+                item.get("translated_phrase")
+                or item.get("translation")
+                or item.get("target_phrase")
+                or item.get("target")
+                or ""
+            ).strip()
+            if not source_phrase or not translated_phrase:
+                continue
+            if source_phrase in existing_terms or source_phrase in seen:
+                continue
+            if source_phrase not in source_text and source_phrase not in source_no_space:
+                continue
+            if re.fullmatch(r"[\d\s.,:;/%°℃\-+]+", source_phrase):
+                continue
+            seen.add(source_phrase)
+            candidates.append({
+                "source_phrase": source_phrase,
+                "translated_phrase": translated_phrase,
+                "reason": (item.get("reason") or item.get("analysis") or "").strip(),
+                "confidence": item.get("confidence"),
+            })
+            if len(candidates) >= limit:
+                break
+
+        return {"candidates": candidates}
+
+    def import_terminology_candidates(self, candidates):
+        """Save approved terminology candidates into translation memory."""
+        self.ensure_one()
+        GlossaryModel = self.env["llm.translation.glossary"].sudo()
+        imported = []
+        errors = []
+        source_lang = self.source_lang or "en"
+        target_lang = self.target_lang or "zh"
+
+        for item in candidates or []:
+            source_phrase = (item.get("source_phrase") or item.get("source") or "").strip()
+            translated_phrase = (
+                item.get("translated_phrase")
+                or item.get("translation")
+                or item.get("target_phrase")
+                or item.get("target")
+                or ""
+            ).strip()
+            if not source_phrase or not translated_phrase:
+                continue
+            entry = GlossaryModel._upsert_entry(
+                source_phrase,
+                translated_phrase,
+                source_lang,
+                target_lang,
+            )
+            if entry:
+                values = {"origin": "manual"}
+                reason = (item.get("reason") or "").strip()
+                if reason and not entry.ai_analysis:
+                    values["ai_analysis"] = reason
+                entry.write(values)
+                imported.append(entry.id)
+            else:
+                errors.append(source_phrase)
+
+        return {
+            "success": True,
+            "imported_count": len(imported),
+            "imported_ids": imported,
+            "errors": errors,
+        }
+
+    def _term_text_contains(self, haystack, needle):
+        haystack = html.unescape(re.sub(r"<[^>]+>", "", haystack or "")).lower()
+        needle = html.unescape(re.sub(r"<[^>]+>", "", needle or "")).lower()
+        haystack_spaced = re.sub(r"\s+", " ", haystack).strip()
+        needle_spaced = re.sub(r"\s+", " ", needle).strip()
+        if not needle_spaced:
+            return False
+        return (
+            needle_spaced in haystack_spaced
+            or re.sub(r"\s+", "", needle_spaced) in re.sub(r"\s+", "", haystack_spaced)
+        )
+
+    def validate_terminology_usage(self, limit=200):
+        """Check translated lines against mandatory terminology memory."""
+        self.ensure_one()
+        limit = max(1, min(int(limit or 200), 1000))
+        GlossaryModel = self.env["llm.translation.glossary"].sudo()
+        entries = GlossaryModel.search([
+            ("active", "=", True),
+            ("source_lang", "=", self.source_lang or "en"),
+            ("target_lang", "=", self.target_lang or "zh"),
+            ("source_phrase", "!=", False),
+            ("new_phrase", "!=", False),
+        ], order="frequency desc")
+
+        issues = []
+        for line in self.line_ids.sorted("sequence"):
+            if line.is_empty or line.line_type == "image_ocr":
+                continue
+            source_text = line.source_text or ""
+            translated_text = line.translated_text or ""
+            missing_terms = []
+            for entry in entries:
+                source_phrase = (entry.source_phrase or entry.source_text or "").strip()
+                expected = (entry.new_phrase or entry.translated_text or "").strip()
+                if not source_phrase or not expected:
+                    continue
+                if not self._term_text_contains(source_text, source_phrase):
+                    continue
+                if self._term_text_contains(translated_text, expected):
+                    continue
+                missing_terms.append({
+                    "source_phrase": source_phrase,
+                    "expected_translation": expected,
+                    "entry_id": entry.id,
+                })
+            if missing_terms:
+                issues.append({
+                    "line_id": line.id,
+                    "sequence": line.sequence,
+                    "source_text": source_text,
+                    "translated_text": translated_text,
+                    "missing_terms": missing_terms,
+                })
+                if len(issues) >= limit:
+                    break
+
+        return {
+            "issue_count": len(issues),
+            "issues": issues,
+        }
+
+    def retranslate_terminology_violations(self, line_ids=None, limit=20):
+        """Re-translate lines that failed terminology validation."""
+        self.ensure_one()
+        validation = self.validate_terminology_usage(limit=1000)
+        issue_ids = [issue["line_id"] for issue in validation["issues"]]
+        if line_ids:
+            requested = {int(line_id) for line_id in line_ids}
+            issue_ids = [line_id for line_id in issue_ids if line_id in requested]
+        issue_ids = issue_ids[:max(1, min(int(limit or 20), 100))]
+        lines = self.env["llm.translation.line"].browse(issue_ids).exists()
+
+        updated = []
+        errors = []
+        for line in lines.sorted("sequence"):
+            if line.is_empty or line.line_type == "image_ocr":
+                continue
+            try:
+                line.write({"state": "pending", "translated_text": False, "reasoning": False})
+                self._translate_single_line(line)
+                updated.append(line.id)
+                self.env.cr.commit()
+            except Exception as e:
+                _logger.warning("Terminology retranslation failed for line %s: %s", line.id, e)
+                line.write({
+                    "state": "error",
+                    "translated_text": f"[TERMINOLOGY RETRANSLATION ERROR: {e}]",
+                })
+                errors.append({"line_id": line.id, "error": str(e)})
+                self.env.cr.commit()
+
+        if updated:
+            self._finalize_translation(force_rebuild=True)
+            self.env.cr.commit()
+
+        return {
+            "success": True,
+            "updated_line_ids": updated,
+            "errors": errors,
+            "remaining": self.validate_terminology_usage(limit=1000),
+        }
+
     # =========================================================================
     # TRANSLATION
     # =========================================================================
 
-    def _build_system_prompt(self, glossary_text="", batch_mode=False):
-        """Build the system prompt for the translation task.
-
-        Args:
-            glossary_text: Optional glossary section from knowledge base.
-            batch_mode: If True, add rule about [SEP] markers for batch translation.
-
-        Returns:
-            str: System prompt for the LLM.
-        """
+    def _build_default_system_prompt(self):
+        """Build the default base system prompt shown in the settings dialog."""
         self.ensure_one()
         source_lang = self._get_source_lang_name()
         target_lang = self._get_target_lang_name()
@@ -1270,6 +1569,32 @@ class LLMTranslation(models.Model):
                 "characters and wording.\n"
             )
 
+        return prompt
+
+    def _render_custom_system_prompt(self):
+        self.ensure_one()
+        prompt = self.custom_system_prompt or self._build_default_system_prompt()
+        replacements = {
+            "{source_lang}": self._get_source_lang_name(),
+            "{target_lang}": self._get_target_lang_name(),
+        }
+        for placeholder, value in replacements.items():
+            prompt = prompt.replace(placeholder, value)
+        return prompt.rstrip() + "\n"
+
+    def _build_system_prompt(self, glossary_text="", batch_mode=False):
+        """Build the system prompt for the translation task.
+
+        Args:
+            glossary_text: Optional glossary section from knowledge base.
+            batch_mode: If True, add rule about [SEP] markers for batch translation.
+
+        Returns:
+            str: System prompt for the LLM.
+        """
+        self.ensure_one()
+        prompt = self._render_custom_system_prompt()
+
         if batch_mode:
             prompt += (
                 f"12. The input contains MULTIPLE paragraphs separated by [SEP] markers. "
@@ -1286,6 +1611,22 @@ class LLMTranslation(models.Model):
             prompt += glossary_text
 
         return prompt
+
+    def get_prompt_settings(self):
+        self.ensure_one()
+        default_prompt = self._build_default_system_prompt()
+        return {
+            "default_prompt": default_prompt,
+            "custom_prompt": self.custom_system_prompt or "",
+            "current_prompt": self.custom_system_prompt or default_prompt,
+            "is_custom": bool(self.custom_system_prompt),
+        }
+
+    def update_prompt_settings(self, prompt_text=None):
+        self.ensure_one()
+        prompt_text = (prompt_text or "").strip()
+        self.write({"custom_system_prompt": prompt_text or False})
+        return self.get_prompt_settings()
 
     def action_start_translation(self):
         """Start the translation process. Can be resumed if interrupted."""
@@ -3210,7 +3551,7 @@ class LLMTranslation(models.Model):
             except Exception:
                 _logger.debug("Skipping image in bilingual export", exc_info=True)
 
-    def _add_bilingual_table_pair(self, doc, line):
+    def _add_bilingual_table_pair(self, doc, line, translation_first=False):
         meta = self._get_bilingual_line_meta(line)
         cells_meta = meta.get("cells") or []
         source_cells = [
@@ -3226,7 +3567,12 @@ class LLMTranslation(models.Model):
         ]
         cell_count = max(len(source_cells), len(translated_cells), 1)
 
-        for cells, muted in ((source_cells, True), (translated_cells, False)):
+        table_pairs = ((translated_cells, False), (source_cells, True)) if translation_first else (
+            (source_cells, True),
+            (translated_cells, False),
+        )
+
+        for cells, muted in table_pairs:
             table = doc.add_table(rows=1, cols=cell_count)
             table.style = "Table Grid"
             for idx in range(cell_count):
@@ -3250,7 +3596,11 @@ class LLMTranslation(models.Model):
                         muted=False,
                     )
 
-    def _prepare_bilingual_rebuild_data(self):
+    def _prepare_bilingual_rebuild_data(
+        self,
+        translation_first=False,
+        table_translation_newline=True,
+    ):
         """Prepare paragraph/table translations for source-template bilingual export."""
         self.ensure_one()
         paragraph_translations = {}
@@ -3317,9 +3667,15 @@ class LLMTranslation(models.Model):
         return {
             "paragraphs": paragraph_translations,
             "tables": table_translations,
+            "translation_first": bool(translation_first),
+            "table_translation_newline": bool(table_translation_newline),
         }
 
-    def _finalize_bilingual_translation(self):
+    def _finalize_bilingual_translation(
+        self,
+        translation_first=False,
+        table_translation_newline=True,
+    ):
         """Build a WYSIWYG-style bilingual DOCX matching the single-pane view."""
         self.ensure_one()
         if not docx_handler.Document:
@@ -3342,7 +3698,10 @@ class LLMTranslation(models.Model):
                 try:
                     result_bytes = docx_handler.rebuild_bilingual_docx_from_original(
                         original_content,
-                        self._prepare_bilingual_rebuild_data(),
+                        self._prepare_bilingual_rebuild_data(
+                            translation_first=translation_first,
+                            table_translation_newline=table_translation_newline,
+                        ),
                     )
                 except Exception as e:
                     _logger.warning(
@@ -3358,10 +3717,18 @@ class LLMTranslation(models.Model):
                     continue
                 meta = self._get_bilingual_line_meta(line)
                 if meta.get("is_table_row") or line.line_type == "table_cell":
-                    self._add_bilingual_table_pair(doc, line)
+                    self._add_bilingual_table_pair(
+                        doc,
+                        line,
+                        translation_first=translation_first,
+                    )
                 else:
-                    self._add_bilingual_source_paragraph(doc, line)
-                    self._add_bilingual_translated_paragraph(doc, line)
+                    if translation_first:
+                        self._add_bilingual_translated_paragraph(doc, line)
+                        self._add_bilingual_source_paragraph(doc, line)
+                    else:
+                        self._add_bilingual_source_paragraph(doc, line)
+                        self._add_bilingual_translated_paragraph(doc, line)
 
             buffer = docx_handler.io.BytesIO()
             doc.save(buffer)
