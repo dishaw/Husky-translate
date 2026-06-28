@@ -1,202 +1,128 @@
 # =========================================================
-# TS Odoo Translate Docker Backup Script
-# Creates one all-in-one 7z archive for the odoo-trans project.
+# HUSKY TRANSLATE - Backup Script
+# Archives the project + Docker volumes into one 7z file.
 # =========================================================
 
 [CmdletBinding()]
 param(
-    [string]$ProjectRoot   = "D:\odoo-trans",
-    [string]$BackupRoot    = "D:\odoo-trans-backups",
-    [string]$LocalTemp     = "D:\Odoo_Trans_Temp_Backup",
-    [string]$OdooContainer = "odoo_trans_web",
-    [string]$DbContainer   = "odoo_trans_db",
-    [string]$DbName        = "odoo-translate",
-    [string]$DbUser        = "odoo",
-    [string]$DbPass        = "odoo",
-    [int]$RetentionDays    = 0
+    [string]$ProjectRoot   = "D:\Husky-trans",
+    [string]$BackupRoot    = "D:\Husky-trans-backups",
+    [string]$LocalTemp     = "D:\Husky_Trans_Temp_Backup",
+    [int]$RetentionDays    = 7
 )
 
 $ErrorActionPreference = "Stop"
 
 $Date         = Get-Date -Format "yyyyMMdd_HHmmss"
-$BackupName   = "ts_backup_$Date"
+$BackupName   = "husky_trans_backup_$Date"
 $StageRoot    = Join-Path $LocalTemp $BackupName
 $ProjectStage = Join-Path $StageRoot "project"
-$DbStage      = Join-Path $StageRoot "db"
-$FsStage      = Join-Path $StageRoot "filestore"
-$SqlFile      = Join-Path $DbStage "$DbName.sql"
-$FsFile       = Join-Path $FsStage "filestore.tar.gz"
+$VolStage     = Join-Path $StageRoot "volumes"
 $MetadataFile = Join-Path $StageRoot "metadata.txt"
-$ChecksumFile = Join-Path $StageRoot "checksums.sha256"
-$LogFile      = Join-Path $StageRoot "backup_log_$Date.txt"
 $ArchiveFile  = Join-Path $BackupRoot "$BackupName.7z"
-$ArchiveHash  = "$ArchiveFile.sha256"
-$ExcludeDirs   = @(".git", ".waylog", "__pycache__")
-$ExcludeFiles  = @("*.log", "*.pyc", "ts_backup_*.7z", "Task_Error_Log.txt")
+
+# ---- OnlyOffice Docker volumes to back up ----
+# skip: onlyoffice_lib (document cache, 500MB+ regenerable)
+# skip: onlyoffice_logs (log files)
+$Volumes = @(
+    "husky-trans_onlyoffice_fonts",
+    "husky-trans_onlyoffice_data"
+)
+
+# ---- Files/dirs to EXCLUDE from project copy ----
+$ExcludeDirs  = @(".git", "__pycache__", "logs", "myaddons", "config")
+$ExcludeFiles = @("*.log", "*.pyc", "*.7z", ".dockerignore", "*.mhtml")
 
 function Get-7Zip {
     $default7z = "C:\Program Files\7-Zip\7z.exe"
-    if (Test-Path $default7z) {
-        return $default7z
-    }
-
+    if (Test-Path $default7z) { return $default7z }
     $cmd = Get-Command "7z.exe" -ErrorAction SilentlyContinue
-    if ($cmd) {
-        return $cmd.Source
-    }
-
-    throw "7-Zip was not found. Install 7-Zip or add 7z.exe to PATH."
+    if ($cmd) { return $cmd.Source }
+    throw "7-Zip not found. Install 7-Zip or add 7z.exe to PATH."
 }
 
-function Require-Command {
-    param([string]$Name)
-    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-        throw "Required command not found: $Name"
-    }
+function Invoke-Cmd {
+    param([string]$Cmd, [string]$Desc)
+    Write-Host "[ ] $Desc" -ForegroundColor Cyan
+    cmd /c $Cmd
+    if ($LASTEXITCODE -ne 0) { throw "$Desc FAILED (exit $LASTEXITCODE)" }
+    Write-Host "[OK] $Desc" -ForegroundColor Green
 }
 
-function Invoke-CmdChecked {
-    param(
-        [string]$CommandLine,
-        [string]$Description
-    )
-
-    Write-Host $Description -ForegroundColor Cyan
-    cmd /c $CommandLine
-    if ($LASTEXITCODE -ne 0) {
-        throw "$Description failed with exit code $LASTEXITCODE"
-    }
-}
-
-function Add-MetadataLine {
-    param([string]$Line)
-    Add-Content -LiteralPath $MetadataFile -Value $Line -Encoding UTF8
-}
+# ======================== MAIN ========================
 
 $ZipExe = Get-7Zip
-Require-Command "docker"
-Require-Command "robocopy"
 
 New-Item -ItemType Directory -Force -Path $LocalTemp, $BackupRoot | Out-Null
-if (Test-Path $StageRoot) {
-    Remove-Item -LiteralPath $StageRoot -Recurse -Force
-}
-New-Item -ItemType Directory -Force -Path $ProjectStage, $DbStage, $FsStage | Out-Null
+if (Test-Path $StageRoot) { Remove-Item -LiteralPath $StageRoot -Recurse -Force }
+New-Item -ItemType Directory -Force -Path $ProjectStage, $VolStage | Out-Null
 
-$transcriptStarted = $false
 try {
-    Start-Transcript -Path $LogFile -Append | Out-Null
-    $transcriptStarted = $true
-
-    Write-Host "=== TS backup started: $Date ===" -ForegroundColor Green
-    Write-Host "Project root : $ProjectRoot"
-    Write-Host "Backup file  : $ArchiveFile"
-    Write-Host "Database     : $DbName"
+    Write-Host "=================================================" -ForegroundColor Green
+    Write-Host "  HUSKY TRANSLATE Backup"
+    Write-Host "  $Date"
+    Write-Host "=================================================" -ForegroundColor Green
 
     if (-not (Test-Path $ProjectRoot)) {
-        throw "Project root does not exist: $ProjectRoot"
+        throw "Project root not found: $ProjectRoot"
     }
 
-    Write-Host "[1/7] Checking Docker containers..." -ForegroundColor Cyan
-    docker inspect $OdooContainer | Out-Null
-    docker inspect $DbContainer | Out-Null
+    # [1/3] Copy project files
+    Write-Host "`n[1/3] Copying project files (excl. volumes)..." -ForegroundColor Yellow
+    $excludeArg = ""
+    foreach ($d in $ExcludeDirs)  { $excludeArg += " /xd `"$d`"" }
+    foreach ($f in $ExcludeFiles) { $excludeArg += " /xf `"$f`"" }
+    $excludeArg += " /xd `"onlyoffice_plugins_repo`""
 
-    Write-Host "[2/7] Writing metadata..." -ForegroundColor Cyan
-    Set-Content -LiteralPath $MetadataFile -Value "TS Odoo Translate Backup - $Date" -Encoding UTF8
-    Add-MetadataLine "ProjectRoot: $ProjectRoot"
-    Add-MetadataLine "Database: $DbName"
-    Add-MetadataLine "OdooContainer: $OdooContainer"
-    Add-MetadataLine "DbContainer: $DbContainer"
-    Add-MetadataLine "Host: $env:COMPUTERNAME"
-    Add-MetadataLine "CreatedAt: $(Get-Date -Format o)"
+    $robocopyCmd = "robocopy `"$ProjectRoot`" `"$ProjectStage`" /E /COPY:DAT $excludeArg /NP /NFL /NDL /NJH /NJS"
+    cmd /c $robocopyCmd 2>&1 | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "Robocopy failed with code $LASTEXITCODE" }
 
-    try {
-        $odooImageId = docker inspect --format='{{.Image}}' $OdooContainer
-        $dbImageId = docker inspect --format='{{.Image}}' $DbContainer
-        Add-MetadataLine "OdooImageId: $odooImageId"
-        Add-MetadataLine "PostgresImageId: $dbImageId"
-        Add-MetadataLine "OdooImageDigest: $(docker image inspect --format='{{index .RepoDigests 0}}' $odooImageId 2>$null)"
-        Add-MetadataLine "PostgresImageDigest: $(docker image inspect --format='{{index .RepoDigests 0}}' $dbImageId 2>$null)"
-    } catch {
-        Add-MetadataLine "ImageMetadataWarning: $($_.Exception.Message)"
-    }
-
-    Write-Host "[3/7] Exporting database $DbName..." -ForegroundColor Cyan
-    $dumpCmd = "docker exec -i -e PGPASSWORD=$DbPass $DbContainer pg_dump -U $DbUser -d `"$DbName`" --clean --if-exists --create --no-owner --no-privileges > `"$SqlFile`""
-    Invoke-CmdChecked -CommandLine $dumpCmd -Description "Database dump"
-
-    Write-Host "[4/7] Exporting Odoo filestore..." -ForegroundColor Cyan
-    $tarCmd = "docker exec $OdooContainer bash -lc `"if [ -d '/var/lib/odoo/filestore' ]; then tar -czf - -C /var/lib/odoo filestore; else tar -czf - --files-from /dev/null; fi`" > `"$FsFile`""
-    Invoke-CmdChecked -CommandLine $tarCmd -Description "Filestore archive"
-
-    Write-Host "[5/7] Copying project files..." -ForegroundColor Cyan
-    Write-Host "Excluding dirs : $($ExcludeDirs -join ', ')" -ForegroundColor DarkGray
-    Write-Host "Excluding files: $($ExcludeFiles -join ', ')" -ForegroundColor DarkGray
-    $robocopyArgs = @(
-        $ProjectRoot,
-        $ProjectStage,
-        "/E",
-        "/XD"
-    ) + $ExcludeDirs + @(
-        "/XF"
-    ) + $ExcludeFiles + @(
-        "/R:2",
-        "/W:2",
-        "/NFL",
-        "/NDL"
-    )
-    & robocopy @robocopyArgs | Out-Host
-    $robocopyCode = $LASTEXITCODE
-    if ($robocopyCode -gt 7) {
-        throw "Robocopy failed with exit code $robocopyCode"
-    }
-
-    Write-Host "[6/7] Calculating package checksums..." -ForegroundColor Cyan
-    "SHA256 checksums for files inside this backup:" | Set-Content -LiteralPath $ChecksumFile -Encoding UTF8
-    "Note: the live transcript log is excluded from this internal checksum list because Windows keeps it locked while the backup is running." | Add-Content -LiteralPath $ChecksumFile -Encoding UTF8
-    Get-ChildItem -LiteralPath $StageRoot -File -Recurse |
-        Where-Object { $_.FullName -ne $ChecksumFile -and $_.FullName -ne $LogFile } |
-        Sort-Object FullName |
-        ForEach-Object {
-            $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
-            $relative = $_.FullName.Substring($StageRoot.Length + 1).Replace("\", "/")
-            Add-Content -LiteralPath $ChecksumFile -Value "$($hash.Hash)  $relative" -Encoding UTF8
+    # [2/3] Export Docker volumes
+    Write-Host "`n[2/3] Exporting OnlyOffice Docker volumes..." -ForegroundColor Yellow
+    foreach ($vol in $Volumes) {
+        $exists = docker volume inspect $vol 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "   Exporting $vol ..."
+            docker run --rm -v ${vol}:/src -v "${VolStage}:/out" alpine sh -c "tar czf /out/${vol}.tar.gz -C /src ." 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) { Write-Host "   OK: $vol" }
+            else                     { Write-Host "   WARN: $vol export failed" -ForegroundColor Yellow }
+        } else {
+            Write-Host "   SKIP: $vol (not found)" -ForegroundColor Gray
         }
-
-    Stop-Transcript | Out-Null
-    $transcriptStarted = $false
-
-    Write-Host "[7/7] Creating final archive..." -ForegroundColor Cyan
-    if (Test-Path $ArchiveFile) {
-        Remove-Item -LiteralPath $ArchiveFile -Force
-    }
-    & $ZipExe a $ArchiveFile "$StageRoot\*" -t7z -mx9 -mmt=on "-xr!.git" "-xr!.waylog" "-xr!__pycache__" "-xr!*.pyc" "-xr!*.log"
-    if ($LASTEXITCODE -ne 0) {
-        throw "7-Zip failed with exit code $LASTEXITCODE"
     }
 
-    $finalHash = Get-FileHash -LiteralPath $ArchiveFile -Algorithm SHA256
-    "$($finalHash.Hash)  $(Split-Path $ArchiveFile -Leaf)" | Set-Content -LiteralPath $ArchiveHash -Encoding UTF8
+    # Write metadata
+    @"
+HUSKY TRANSLATE Backup
+======================
+Date       : $Date
+Project    : $ProjectRoot
+Services   : husky_portal (nginx:alpine, :8070) + husky_onlyoffice (documentserver, :8090)
+Architecture: Frontend portal + OnlyOffice Document Server + AI/Translation plugins
+Restore    : Run ts_restore_centos.sh on target Linux server
+"@ | Set-Content -Path $MetadataFile -Encoding UTF8
 
+    # [3/3] Package to 7z
+    Write-Host "`n[3/3] Creating 7z archive..." -ForegroundColor Yellow
+    Invoke-Cmd "`"$ZipExe`" a -t7z -mx5 -mmt=on `"$ArchiveFile`" `"$StageRoot\*`"" "Pack to 7z"
+
+    $size = [math]::Round((Get-Item $ArchiveFile).Length / 1MB, 1)
+    Write-Host ""
+    Write-Host "=== BACKUP COMPLETE ===" -ForegroundColor Green
+    Write-Host "File : $ArchiveFile"
+    Write-Host "Size : $size MB"
+    Write-Host ""
+
+    # Purge old backups
     if ($RetentionDays -gt 0) {
-        Write-Host "Cleaning backups older than $RetentionDays days in $BackupRoot..." -ForegroundColor Cyan
-        $limitDate = (Get-Date).AddDays(-$RetentionDays)
-        Get-ChildItem -LiteralPath $BackupRoot -File -Filter "ts_backup_*.7z" |
-            Where-Object { $_.LastWriteTime -lt $limitDate } |
-            Remove-Item -Force
+        Get-ChildItem $BackupRoot -Filter "husky_trans_backup_*.7z" |
+            Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$RetentionDays) } |
+            ForEach-Object { Remove-Item $_.FullName; Write-Host "Purged: $($_.Name)" }
     }
 
-    Remove-Item -LiteralPath $StageRoot -Recurse -Force
-
-    Write-Host "=== Backup completed successfully ===" -ForegroundColor Green
-    Write-Host "Archive : $ArchiveFile"
-    Write-Host "SHA256  : $($finalHash.Hash)"
-} catch {
-    if ($transcriptStarted) {
-        Stop-Transcript | Out-Null
+} finally {
+    if (Test-Path $StageRoot) {
+        Remove-Item -LiteralPath $StageRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
-    Write-Host "=== Backup failed ===" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Red
-    Write-Host "Stage folder kept for inspection: $StageRoot" -ForegroundColor Yellow
-    exit 1
 }

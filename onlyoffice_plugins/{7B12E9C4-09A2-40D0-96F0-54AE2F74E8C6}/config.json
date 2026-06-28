@@ -1,0 +1,19 @@
+{
+  "name": "OOPM AI Bridge",
+  "guid": "asc.{7B12E9C4-09A2-40D0-96F0-54AE2F74E8C6}",
+  "version": "1.2.0",
+  "minVersion": "8.0.0",
+  "variations": [
+    {
+      "description": "OOPM AI Bridge",
+      "url": "index.html?v=1.2.0",
+      "isViewer": false,
+      "EditorsSupport": ["word"],
+      "type": "background",
+      "initDataType": "none",
+      "buttons": [],
+      "events": []
+    }
+  ],
+  "onlyofficeScheme": true
+}

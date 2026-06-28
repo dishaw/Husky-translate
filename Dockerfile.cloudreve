@@ -1,0 +1,22 @@
+FROM alpine:3.20
+
+# 安装运行时依赖
+RUN apk add --no-cache ca-certificates tzdata
+
+# 下载 Cloudreve 预编译二进制
+ARG VERSION=3.8.3
+RUN wget -q "https://github.com/cloudreve/Cloudreve/releases/download/${VERSION}/cloudreve_${VERSION}_linux_amd64.tar.gz" -O /tmp/cloudreve.tar.gz \
+    && tar -xzf /tmp/cloudreve.tar.gz -C /usr/local/bin/ \
+    && chmod +x /usr/local/bin/cloudreve \
+    && rm -f /tmp/cloudreve.tar.gz
+
+# 创建数据目录
+RUN mkdir -p /cloudreve/uploads /cloudreve/conf
+
+# 生成默认配置文件（首次启动时自动生成）
+WORKDIR /cloudreve
+VOLUME ["/cloudreve/uploads", "/cloudreve/conf"]
+
+EXPOSE 5212
+
+ENTRYPOINT ["cloudreve", "-c", "/cloudreve/conf/conf.ini"]

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>HUSKY language bridge</title>
+</head>
+<body>
+<script>
+    (function () {
+        var params = new URLSearchParams(location.search);
+        var lang = params.get("lang") || "en";
+        var auto = params.get("auto") || "1";
+        try {
+            localStorage.setItem("husky_target_language", lang);
+            localStorage.setItem("husky_auto_translate", auto);
+            localStorage.setItem("husky_language_updated_at", String(Date.now()));
+        } catch (e) {}
+        try {
+            parent.postMessage({ source: "husky-language-bridge", lang: lang }, "*");
+        } catch (e) {}
+    })();
+</script>
+</body>
+</html>

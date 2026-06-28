@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HUSKY TRANSLATE</title>
+    <link rel="icon" type="image/svg+xml" href="husky-translate.svg">
+    <style>
+        :root {
+            --ink: #172033;
+            --muted: #637083;
+            --line: #d8dee8;
+            --page: #f4f7fb;
+            --brand: #2563eb;
+            --brand-dark: #1d4ed8;
+            --ok: #0f766e;
+            --warn: #b45309;
+        }
+
+        * { box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; margin: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+            color: var(--ink);
+            background: linear-gradient(180deg, #eef4ff 0%, var(--page) 48%, #eef5f2 100%);
+            overflow: hidden;
+        }
+
+        .home {
+            min-height: 100%;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+        }
+
+        .shell {
+            width: min(960px, 100%);
+            display: grid;
+            grid-template-columns: 1fr 420px;
+            gap: 24px;
+            align-items: stretch;
+        }
+
+        .brand, .panel {
+            background: rgba(255, 255, 255, 0.84);
+            border: 1px solid rgba(216, 222, 232, 0.92);
+            border-radius: 8px;
+            box-shadow: 0 18px 46px rgba(35, 48, 78, 0.12);
+        }
+
+        .brand {
+            padding: 36px;
+            min-height: 480px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .logo-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .logo-row img {
+            width: 54px;
+            height: 54px;
+        }
+
+        .mark {
+            font-size: 15px;
+            font-weight: 800;
+            color: var(--brand);
+        }
+
+        h1 {
+            margin: 58px 0 14px;
+            font-size: 42px;
+            line-height: 1.08;
+            letter-spacing: 0;
+        }
+
+        .lead {
+            margin: 0;
+            max-width: 520px;
+            color: var(--muted);
+            font-size: 16px;
+            line-height: 1.7;
+        }
+
+        .mini {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-top: 40px;
+        }
+
+        .mini div {
+            border-top: 1px solid var(--line);
+            padding-top: 14px;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .mini b {
+            display: block;
+            color: var(--ink);
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .panel { padding: 24px; }
+        .panel h2 { margin: 0 0 18px; font-size: 20px; letter-spacing: 0; }
+
+        label {
+            display: block;
+            margin: 16px 0 8px;
+            color: #334155;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        select {
+            width: 100%;
+            height: 44px;
+            padding: 0 12px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
+            color: var(--ink);
+            font: inherit;
+        }
+
+        .drop {
+            position: relative;
+            min-height: 178px;
+            border: 1.5px dashed #a7b3c6;
+            border-radius: 8px;
+            background: #f8fbff;
+            display: grid;
+            place-items: center;
+            padding: 20px;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+
+        .drop.drag {
+            border-color: var(--brand);
+            background: #eff6ff;
+        }
+
+        .drop input {
+            position: absolute;
+            inset: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .drop-text {
+            text-align: center;
+            color: var(--muted);
+            line-height: 1.7;
+        }
+
+        .drop-text strong {
+            display: block;
+            color: var(--ink);
+            font-size: 16px;
+            margin-bottom: 4px;
+            word-break: break-word;
+        }
+
+        .actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        button {
+            height: 44px;
+            border: 0;
+            border-radius: 6px;
+            font: inherit;
+            font-weight: 800;
+            cursor: pointer;
+            transition: transform 0.15s, background 0.15s;
+        }
+
+        button:hover { transform: translateY(-1px); }
+        button:disabled { cursor: not-allowed; opacity: 0.55; transform: none; }
+        .primary { background: var(--brand); color: #fff; }
+        .primary:hover { background: var(--brand-dark); }
+        .secondary { background: #e6ebf2; color: #334155; }
+        .secondary:hover { background: #d7dee9; }
+
+        .status {
+            min-height: 22px;
+            margin-top: 16px;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .status.ok { color: var(--ok); }
+        .status.warn { color: var(--warn); }
+
+        .editor {
+            position: fixed;
+            inset: 0;
+            display: none;
+            background: #fff;
+        }
+
+        .editor.active { display: block; }
+
+        .topbar {
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 0 12px;
+            border-bottom: 1px solid #dce2eb;
+            background: #fff;
+        }
+
+        .topbar-title {
+            min-width: 0;
+            font-size: 13px;
+            color: var(--muted);
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+        }
+
+        .topbar-title b { color: var(--ink); }
+
+        .topbar button {
+            flex: 0 0 auto;
+            width: auto;
+            height: 34px;
+            padding: 0 12px;
+            font-size: 13px;
+            font-weight: 700;
+        }
+
+        #editor-frame { height: calc(100% - 48px); }
+
+        .overlay {
+            position: fixed;
+            inset: 0;
+            display: none;
+            place-items: center;
+            background: rgba(15, 23, 42, 0.78);
+            z-index: 20;
+        }
+
+        .overlay.active { display: grid; }
+
+        .loader {
+            width: min(360px, calc(100% - 40px));
+            background: #fff;
+            border-radius: 8px;
+            padding: 22px;
+            box-shadow: 0 20px 58px rgba(0, 0, 0, 0.24);
+        }
+
+        .loader-text {
+            font-size: 14px;
+            color: var(--ink);
+            margin-bottom: 12px;
+        }
+
+        .bar {
+            height: 8px;
+            border-radius: 999px;
+            overflow: hidden;
+            background: #dbe3ef;
+        }
+
+        .bar span {
+            display: block;
+            width: 30%;
+            height: 100%;
+            background: linear-gradient(90deg, var(--brand), #0f766e);
+            transition: width 0.2s;
+        }
+
+        @media (max-width: 820px) {
+            body { overflow: auto; }
+            .shell { grid-template-columns: 1fr; }
+            .brand { min-height: auto; padding: 26px; }
+            h1 { margin-top: 38px; font-size: 34px; }
+            .mini { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <main class="home" id="home">
+        <section class="shell">
+            <div class="brand">
+                <div>
+                    <div class="logo-row">
+                        <img src="husky-translate.svg" alt="HUSKY">
+                        <div>
+                            <div class="mark">HUSKY TRANSLATE</div>
+                            <div class="lead">游客单文件翻译入口</div>
+                        </div>
+                    </div>
+                    <h1>上传文件，选择语言，进入 OnlyOffice 翻译。</h1>
+                    <p class="lead">8070 只承载轻量界面和临时上传；文档打开后调用 8090 的 OnlyOffice 翻译插件。登录用户从这里进入 8080 的 Cloudreve。</p>
+                </div>
+                <div class="mini">
+                    <div><b>单份文件</b>每次会话只处理一个上传文件。</div>
+                    <div><b>临时保存</b>文档载入后和会话结束时清理上传源文件。</div>
+                    <div><b>Cloudreve</b>登录按钮直接进入 8080 文件管理。</div>
+                </div>
+            </div>
+
+            <form class="panel" id="translate-form">
+                <h2>游客翻译</h2>
+
+                <label for="target-language">目标语言</label>
+                <select id="target-language" autocomplete="off">
+                    <option value="en">英语 English</option>
+                    <option value="zh-CN">简体中文</option>
+                    <option value="ja">日语 Japanese</option>
+                    <option value="ko">韩语 Korean</option>
+                    <option value="fr">法语 French</option>
+                    <option value="de">德语 German</option>
+                    <option value="es">西班牙语 Spanish</option>
+                    <option value="ru">俄语 Russian</option>
+                    <option value="pt">葡萄牙语 Portuguese</option>
+                    <option value="it">意大利语 Italian</option>
+                    <option value="ar">阿拉伯语 Arabic</option>
+                </select>
+
+                <label for="file-input">上传文件</label>
+                <div class="drop" id="drop">
+                    <input id="file-input" type="file" accept=".doc,.docx,.xls,.xlsx,.ppt,.pptx,.pdf,.rtf,.txt">
+                    <div class="drop-text" id="drop-text">
+                        <strong>拖入文件或点击选择</strong>
+                        支持 docx、xlsx、pptx、pdf、rtf、txt
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button class="primary" id="translate-btn" type="submit">开始翻译</button>
+                    <button class="secondary" id="login-btn" type="button">登录</button>
+                </div>
+
+                <div class="status" id="status">请先选择一个文件。</div>
+            </form>
+        </section>
+    </main>
+
+    <section class="editor" id="editor">
+        <div class="topbar">
+            <div class="topbar-title" id="editor-title"><b>HUSKY</b></div>
+            <button class="secondary" type="button" id="cleanup-btn">结束并清理</button>
+        </div>
+        <div id="editor-frame"></div>
+    </section>
+
+    <div class="overlay" id="overlay">
+        <div class="loader">
+            <div class="loader-text" id="loader-text">正在准备翻译会话...</div>
+            <div class="bar"><span id="loader-bar"></span></div>
+        </div>
+    </div>
+
+    <script>
+        const DOCUMENT_SERVER_ORIGIN = "/ds-api";
+        const CLOUDREVE_ORIGIN = `${location.protocol}//${location.hostname}:8080`;
+        const ONLYOFFICE_API_URL = `${DOCUMENT_SERVER_ORIGIN}/web-apps/apps/api/documents/api.js`;
+        const LOCAL_NAMES = ["127.0.0.1", "localhost"];
+        const DOC_HOST = LOCAL_NAMES.includes(location.hostname)
+            ? `${location.protocol}//host.docker.internal:8070`
+            : `${location.protocol}//${location.hostname}:8070`;
+        const TRANSLATOR_GUID = "{7327FC95-16DA-41D9-9AF2-0E7F449F6800}";
+        const TRANSLATOR_ID = `asc.${TRANSLATOR_GUID}`;
+        const TRANSLATOR_CONFIG_URL = `${location.origin}${DOCUMENT_SERVER_ORIGIN}/sdkjs-plugins/${TRANSLATOR_GUID}/config.json`;
+
+        const state = {
+            file: null,
+            uploadPath: "",
+            uploadCleaned: false,
+            cleanupTimer: null,
+            progressTimer: null
+        };
+
+        const form = document.getElementById("translate-form");
+        const drop = document.getElementById("drop");
+        const dropText = document.getElementById("drop-text");
+        const fileInput = document.getElementById("file-input");
+        const statusEl = document.getElementById("status");
+        const overlay = document.getElementById("overlay");
+        const loaderText = document.getElementById("loader-text");
+        const loaderBar = document.getElementById("loader-bar");
+
+        function setStatus(text, tone) {
+            statusEl.textContent = text;
+            statusEl.className = "status" + (tone ? ` ${tone}` : "");
+        }
+
+        function setLoading(text, progress) {
+            loaderText.textContent = text;
+            loaderBar.style.width = `${progress}%`;
+        }
+
+        function showOverlay(text) {
+            overlay.classList.add("active");
+            let progress = 20;
+            setLoading(text || "正在准备翻译会话...", progress);
+            clearInterval(state.progressTimer);
+            state.progressTimer = setInterval(() => {
+                progress = Math.min(progress + Math.random() * 8, 86);
+                loaderBar.style.width = `${progress}%`;
+            }, 260);
+        }
+
+        function hideOverlay() {
+            clearInterval(state.progressTimer);
+            setLoading("完成", 100);
+            setTimeout(() => overlay.classList.remove("active"), 220);
+        }
+
+        function loginToCloudreve() {
+            location.href = CLOUDREVE_ORIGIN;
+        }
+
+        function extOf(name) {
+            const parts = String(name || "").split(".");
+            return parts.length > 1 ? parts.pop().toLowerCase() : "docx";
+        }
+
+        function docTypeFor(ext) {
+            if (["xls", "xlsx", "csv"].includes(ext)) return "cell";
+            if (["ppt", "pptx"].includes(ext)) return "slide";
+            if (ext === "pdf") return "pdf";
+            return "word";
+        }
+
+        function safeName(name) {
+            return String(name || "document.docx")
+                .replace(/[^\w.\-()\u4e00-\u9fa5]+/g, "_")
+                .replace(/^_+|_+$/g, "")
+                .slice(0, 120) || "document.docx";
+        }
+
+        function makeUploadPath(fileName) {
+            const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+            return `/uploads/session-${sessionId}/${encodeURIComponent(safeName(fileName))}`;
+        }
+
+        function loadScript(url) {
+            return new Promise((resolve, reject) => {
+                if (window.DocsAPI) {
+                    resolve();
+                    return;
+                }
+                const script = document.createElement("script");
+                script.src = url;
+                script.onload = resolve;
+                script.onerror = () => reject(new Error("OnlyOffice 8090 API 加载失败"));
+                document.head.appendChild(script);
+            });
+        }
+
+        function syncTargetLanguage(language) {
+            return new Promise((resolve) => {
+                const old = document.getElementById("language-bridge");
+                if (old) old.remove();
+                const iframe = document.createElement("iframe");
+                iframe.id = "language-bridge";
+                iframe.hidden = true;
+                iframe.src = `${DOCUMENT_SERVER_ORIGIN}/sdkjs-plugins/${TRANSLATOR_GUID}/husky-bridge.html?lang=${encodeURIComponent(language)}&auto=1&t=${Date.now()}`;
+                iframe.onload = () => setTimeout(resolve, 150);
+                iframe.onerror = resolve;
+                document.body.appendChild(iframe);
+                setTimeout(resolve, 900);
+            });
+        }
+
+        function uploadFile(file) {
+            state.uploadPath = makeUploadPath(file.name);
+            state.uploadCleaned = false;
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open("PUT", `${location.origin}${state.uploadPath}`, true);
+                xhr.setRequestHeader("Content-Type", "application/octet-stream");
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) resolve();
+                    else reject(new Error(`上传失败：HTTP ${xhr.status}`));
+                };
+                xhr.onerror = () => reject(new Error("上传失败：网络错误"));
+                xhr.send(file);
+            });
+        }
+
+        function cleanupUpload() {
+            if (!state.uploadPath || state.uploadCleaned) return;
+            state.uploadCleaned = true;
+            try {
+                fetch(`${location.origin}${state.uploadPath}`, {
+                    method: "DELETE",
+                    keepalive: true,
+                    cache: "no-store"
+                }).catch(() => {});
+            } catch (e) {}
+        }
+
+        function destroyEditor() {
+            clearTimeout(state.cleanupTimer);
+            if (window.docEditor) {
+                try { window.docEditor.destroyEditor(); } catch (e) {}
+                window.docEditor = null;
+            }
+            document.getElementById("editor-frame").innerHTML = "";
+        }
+
+        function buildEditorConfig(file) {
+            const ext = extOf(file.name);
+            const fileUrl = DOC_HOST + state.uploadPath;
+            const title = file.name || `document.${ext}`;
+            return {
+                document: {
+                    fileType: ext,
+                    key: `guest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    title,
+                    url: fileUrl,
+                    permissions: {
+                        comment: false,
+                        download: true,
+                        edit: true,
+                        fillForms: true,
+                        print: true,
+                        review: false
+                    }
+                },
+                documentType: docTypeFor(ext),
+                editorConfig: {
+                    lang: "zh-CN",
+                    mode: "edit",
+                    user: {
+                        id: "guest",
+                        name: "guest"
+                    },
+                    customization: {
+                        chat: false,
+                        comments: false,
+                        compactToolbar: true,
+                        help: false,
+                        plugins: true,
+                        zoom: 100
+                    },
+                    plugins: {
+                        autostart: [TRANSLATOR_ID],
+                        pluginsData: [TRANSLATOR_CONFIG_URL]
+                    }
+                },
+                events: {
+                    onAppReady() {
+                        setLoading("正在打开 OnlyOffice 翻译插件...", 88);
+                    },
+                    onDocumentReady() {
+                        document.getElementById("home").style.display = "none";
+                        document.getElementById("editor").classList.add("active");
+                        document.getElementById("editor-title").innerHTML = `<b>HUSKY</b> ${title}`;
+                        hideOverlay();
+                        state.cleanupTimer = setTimeout(cleanupUpload, 120000);
+                    },
+                    onError(event) {
+                        const data = event && event.data ? event.data : event;
+                        const detail = data && typeof data === "object" ? JSON.stringify(data) : String(data || "未知错误");
+                        console.error("OnlyOffice error", event);
+                        setStatus(`OnlyOffice 错误：${detail}`, "warn");
+                    }
+                },
+                height: "100%",
+                width: "100%"
+            };
+        }
+
+        async function startTranslation() {
+            const file = state.file;
+            const language = document.getElementById("target-language").value;
+            if (!file) {
+                setStatus("请先选择一个文件。", "warn");
+                return;
+            }
+
+            destroyEditor();
+            showOverlay("正在连接 8090 OnlyOffice...");
+            document.getElementById("translate-btn").disabled = true;
+
+            try {
+                await syncTargetLanguage(language);
+                setLoading("正在上传临时文件...", 42);
+                await uploadFile(file);
+                setLoading("正在加载 OnlyOffice API...", 68);
+                await loadScript(ONLYOFFICE_API_URL);
+                setLoading("正在启动翻译插件...", 82);
+                window.docEditor = new DocsAPI.DocEditor("editor-frame", buildEditorConfig(file));
+                setStatus("文件已交给 OnlyOffice，临时上传源将在会话中自动清理。", "ok");
+            } catch (error) {
+                cleanupUpload();
+                hideOverlay();
+                setStatus(error.message || String(error), "warn");
+            } finally {
+                document.getElementById("translate-btn").disabled = false;
+            }
+        }
+
+        function setFile(file) {
+            state.file = file || null;
+            if (!file) {
+                dropText.innerHTML = "<strong>拖入文件或点击选择</strong>支持 docx、xlsx、pptx、pdf、rtf、txt";
+                setStatus("请先选择一个文件。");
+                return;
+            }
+            dropText.innerHTML = `<strong>${file.name}</strong>${(file.size / 1024 / 1024).toFixed(2)} MB`;
+            setStatus("文件已选择，可以开始翻译。", "ok");
+        }
+
+        fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
+        drop.addEventListener("dragover", (event) => {
+            event.preventDefault();
+            drop.classList.add("drag");
+        });
+        drop.addEventListener("dragleave", () => drop.classList.remove("drag"));
+        drop.addEventListener("drop", (event) => {
+            event.preventDefault();
+            drop.classList.remove("drag");
+            if (event.dataTransfer.files[0]) setFile(event.dataTransfer.files[0]);
+        });
+        form.addEventListener("submit", (event) => {
+            event.preventDefault();
+            startTranslation();
+        });
+        document.getElementById("login-btn").addEventListener("click", loginToCloudreve);
+        document.getElementById("cleanup-btn").addEventListener("click", () => {
+            destroyEditor();
+            cleanupUpload();
+            location.href = "/husky.html";
+        });
+
+        window.addEventListener("pagehide", cleanupUpload);
+        window.addEventListener("beforeunload", cleanupUpload);
+
+        setTimeout(() => {
+            const link = document.createElement("link");
+            link.rel = "preload";
+            link.as = "script";
+            link.href = ONLYOFFICE_API_URL;
+            document.head.appendChild(link);
+        }, 700);
+    </script>
+</body>
+</html>

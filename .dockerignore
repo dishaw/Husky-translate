@@ -1,0 +1,29 @@
+# Odoo 模块（仅前端门户，无需 Odoo 后端）
+myaddons/
+config/
+
+# 备份 & 工具脚本
+ts_backup.ps1
+ts_restore_ubuntu24_safe.sh
+ts_restore_windows.ps1
+fix_config.py
+
+# 文档
+README.md
+*.md
+*.mhtml
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Git
+.git/
+.gitignore
+
+# 其他
+logs/
+__pycache__/
+*.pyc
+*.log

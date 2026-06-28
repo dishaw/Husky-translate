@@ -1,0 +1,16 @@
+<wopi-discovery>
+    <net-zone name="internal">
+        <app name="application/vnd.openxmlformats-officedocument.wordprocessingml.document" favIconUrl="http://127.0.0.1:8090/web-apps/apps/api/wopi/images/favicon.ico" checkLicense="true">
+            <action name="edit" ext="docx" default="true" urlsrc="http://127.0.0.1:8090/[wopi]/wopi/files/[id]?wopisrc=[wopisrc]" requires="loplokit"/>
+            <action name="view" ext="docx" default="true" urlsrc="http://127.0.0.1:8090/[]wopi[]/wopi/files/[id]?wopisrc=[wopisrc]" requires="loplokit"/>
+        </app>
+        <app name="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" favIconUrl="http://127.0.0.1:8090/web-apps/apps/api/wopi/images/favicon.ico" checkLicense="true">
+            <action name="edit" ext="xlsx" default="true" urlsrc="http://127.0.0.1:8090/[wopi]/wopi/files/[id]?wopisrc=[wopisrc]" requires="loplokit"/>
+            <action name="view" ext="xlsx" default="true" urlsrc="http://127.0.0.1:8090/[]wopi[]/wopi/files/[id]?wopisrc=[wopisrc]" requires="loplokit"/>
+        </app>
+        <app name="application/vnd.openxmlformats-officedocument.presentationml.presentation" favIconUrl="http://127.0.0.1:8090/web-apps/apps/api/wopi/images/favicon.ico" checkLicense="true">
+            <action name="edit" ext="pptx" default="true" urlsrc="http://127.0.0.1:8090/[wopi]/wopi/files/[id]?wopisrc=[wopisrc]" requires="loplokit"/>
+            <action name="view" ext="pptx" default="true" urlsrc="http://127.0.0.1:8090/[]wopi[]/wopi/files/[id]?wopisrc=[wopisrc]" requires="loplokit"/>
+        </app>
+    </net-zone>
+</wopi-discovery>

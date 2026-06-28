@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =========================================================
-# TS Odoo Translate Docker Restore Script for Ubuntu 24
+# TS Husky Translate Docker Restore Script for Ubuntu 24
 # Restores one all-in-one archive created by ts_backup.ps1.
 # =========================================================
 
@@ -9,12 +9,12 @@ set -Eeuo pipefail
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-DB_NAME="${DB_NAME:-odoo-translate}"
+DB_NAME="${DB_NAME:-husky-translate}"
 DB_USER="${DB_USER:-odoo}"
 DB_PASS="${DB_PASS:-odoo}"
-ODOO_CONTAINER="${ODOO_CONTAINER:-odoo_trans_web}"
-DB_CONTAINER="${DB_CONTAINER:-odoo_trans_db}"
-PROJECT_ROOT="${PROJECT_ROOT:-/opt/odoo-trans}"
+ODOO_CONTAINER="${ODOO_CONTAINER:-husky_trans_web}"
+DB_CONTAINER="${DB_CONTAINER:-husky_trans_db}"
+PROJECT_ROOT="${PROJECT_ROOT:-/opt/husky-trans}"
 ODOO_URL="${ODOO_URL:-http://localhost:8070}"
 ODOO_BASE_IMAGE="${ODOO_BASE_IMAGE:-odoo:18.0}"
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple/}"
@@ -317,7 +317,7 @@ print_summary() {
     cat <<REPORT
 
 =========================================================
-TS Odoo Translate restore summary
+TS Husky Translate restore summary
 =========================================================
 Archive      : $ARCHIVE
 Project root : $PROJECT_ROOT
@@ -340,7 +340,7 @@ main() {
     find_archive
     as_root
 
-    log_info "TS Odoo Translate restore started"
+    log_info "TS Husky Translate restore started"
     log_info "Archive: $ARCHIVE"
     log_info "Project root: $PROJECT_ROOT"
     log_info "Database: $DB_NAME"

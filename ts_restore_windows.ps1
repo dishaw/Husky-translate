@@ -1,5 +1,5 @@
 # =========================================================
-# TS Odoo Translate Docker Restore Script for Windows
+# TS Husky Translate Docker Restore Script for Windows
 # Restores one all-in-one archive created by ts_backup.ps1.
 # =========================================================
 
@@ -7,13 +7,13 @@
 param(
     [string]$Archive = "",
     [string]$ProjectRoot = $PSScriptRoot,
-    [string]$BackupRoot = "D:\odoo-trans-backups",
+    [string]$BackupRoot = "D:\Husky-trans-backups",
     [string]$WorkRoot = (Join-Path $env:TEMP "ts_restore"),
-    [string]$DbName = "odoo-translate",
+    [string]$DbName = "husky-translate",
     [string]$DbUser = "odoo",
     [string]$DbPass = "odoo",
-    [string]$OdooContainer = "odoo_trans_web",
-    [string]$DbContainer = "odoo_trans_db",
+    [string]$OdooContainer = "husky_trans_web",
+    [string]$DbContainer = "husky_trans_db",
     [string]$OdooUrl = "http://localhost:8070",
     [string]$OdooBaseImage = "odoo:18.0",
     [string]$PipIndexUrl = "https://mirrors.aliyun.com/pypi/simple/",
@@ -405,7 +405,7 @@ function Print-Summary {
     $summary = @"
 
 =========================================================
-TS Odoo Translate restore summary
+TS Husky Translate restore summary
 =========================================================
 Archive      : $script:ArchivePath
 Project root : $ProjectRoot
@@ -431,7 +431,7 @@ try {
     New-Item -ItemType Directory -Force -Path $LogDir, $WorkRoot | Out-Null
     $script:ArchivePath = Find-Archive
 
-    Write-Log "TS Odoo Translate Windows restore started" "INFO" Green
+    Write-Log "TS Husky Translate Windows restore started" "INFO" Green
     Write-Log "Archive: $script:ArchivePath"
     Write-Log "Project root: $ProjectRoot"
     Write-Log "Database: $DbName"

@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HUSKY TRANSLATE</title>
+    <link rel="icon" type="image/svg+xml" href="husky-translate.svg">
+    <style>
+        /* ===== 极致精简基础样式 - 确保 100ms 内渲染 ===== */
+        :root {
+            --primary: #4f46e5;
+            --primary-hover: #4338ca;
+            --bg-dark: #0f172a;
+            --bg-light: #f8fafc;
+            --text-main: #334155;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background-color: var(--bg-light); color: var(--text-main); }
+
+        /* ===== 首页视图 ===== */
+        .view-home {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            width: 100%; height: 100%; padding: 20px;
+            background: radial-gradient(circle at top left, #e0e7ff 0%, #f8fafc 40%);
+        }
+        .hero-card {
+            background: #fff; padding: 40px; border-radius: 16px;
+            box-shadow: 0 10px 25px -5px rgba(0,0,0,0.05), 0 8px 10px -6px rgba(0,0,0,0.05);
+            max-width: 480px; width: 100%; text-align: center;
+        }
+        .logo { width: 100px; height: 100px; margin: 0 auto 16px; }
+        .logo img { width: 100%; height: 100%; }
+        h1 { font-size: 28px; font-weight: 800; color: #1e293b; margin-bottom: 12px; }
+        .subtitle { font-size: 14px; color: #64748b; margin-bottom: 30px; }
+
+        .input-group { width: 100%; margin-bottom: 20px; text-align: left; }
+        label { display: block; font-size: 12px; font-weight: 600; color: #475569; margin-bottom: 6px; }
+        input {
+            width: 100%; padding: 12px 16px; border: 1px solid #cbd5e1;
+            border-radius: 8px; font-size: 14px; outline: none; transition: border-color 0.2s;
+        }
+        input:focus { border-color: var(--primary); }
+
+        .btn-row { display: flex; gap: 10px; }
+        .btn {
+            flex: 1; padding: 14px; border: none; border-radius: 8px;
+            font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+        }
+        .btn-trial { background-color: var(--primary); color: #fff; }
+        .btn-trial:hover { background-color: var(--primary-hover); }
+        .btn-login { background-color: #e2e8f0; color: #475569; }
+        .btn-login:hover { background-color: #cbd5e1; }
+
+        /* 文件拖拽区 */
+        .drop-zone {
+            margin-top: 20px; padding: 24px; border: 2px dashed #cbd5e1;
+            border-radius: 12px; color: #94a3b8; font-size: 13px;
+            cursor: pointer; transition: border-color 0.2s, background 0.2s;
+        }
+        .drop-zone:hover, .drop-zone.drag-over { border-color: var(--primary); background: #eef2ff; }
+
+        /* ===== 加载遮罩层 + Shimmer 渐变进度条 ===== */
+        .overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background-color: rgba(15,23,42,0.95); display: flex;
+            flex-direction: column; align-items: center; justify-content: center;
+            z-index: 9999; opacity: 0; pointer-events: none; transition: opacity 0.3s ease-in-out;
+        }
+        .overlay.active { opacity: 1; pointer-events: auto; }
+        .overlay.done { pointer-events: none; }
+        .loader-box { width: 80%; max-width: 400px; text-align: center; }
+
+        .progress-track {
+            width: 100%; height: 8px; background-color: #334155;
+            border-radius: 999px; overflow: hidden; margin-bottom: 15px; position: relative;
+        }
+        .progress-bar {
+            width: 0%; height: 100%;
+            background: linear-gradient(90deg, #4f46e5 0%, #818cf8 50%, #4f46e5 100%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite linear;
+            border-radius: 999px; transition: width 0.1s linear;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .status-text { color: #f1f5f9; font-size: 14px; margin-bottom: 8px; font-weight: 500; min-height: 20px; }
+        .hint-text { color: #94a3b8; font-size: 11px; }
+
+        /* ===== 编辑器视图 ===== */
+        .view-editor {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none;
+        }
+        #iframe-placeholder { width: 100%; height: 100%; }
+
+        /* Toast 提示 */
+        .toast {
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: #1e293b; color: #fff; padding: 10px 24px;
+            border-radius: 8px; font-size: 13px; z-index: 10000;
+            opacity: 0; transition: opacity 0.3s;
+        }
+        .toast.show { opacity: 1; }
+
+        /* ===== 文件面板 ===== */
+        .file-panel-btn {
+            position: fixed; top: 12px; right: 12px; z-index: 10000;
+            width: 40px; height: 40px; border-radius: 50%;
+            background: rgba(79,70,229,0.9); color: #fff; border: none;
+            font-size: 18px; cursor: pointer; display: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            transition: transform 0.2s, background 0.2s;
+        }
+        .file-panel-btn:hover { background: #4338ca; transform: scale(1.1); }
+        .file-panel-btn.show { display: flex; align-items: center; justify-content: center; }
+
+        .file-panel {
+            position: fixed; top: 0; right: -340px; width: 320px; height: 100%;
+            z-index: 9997; background: #fff; box-shadow: -4px 0 20px rgba(0,0,0,0.15);
+            transition: right 0.3s ease; display: flex; flex-direction: column;
+        }
+        .file-panel.open { right: 0; }
+        .file-panel-header {
+            padding: 16px 20px; border-bottom: 1px solid #e2e8f0;
+            font-size: 15px; font-weight: 700; color: #1e293b;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .file-panel-close {
+            background: none; border: none; font-size: 20px; cursor: pointer;
+            color: #94a3b8; padding: 4px 8px; border-radius: 4px;
+        }
+        .file-panel-close:hover { background: #f1f5f9; color: #475569; }
+        .file-panel-list {
+            flex: 1; overflow-y: auto; padding: 12px;
+        }
+        .file-item {
+            padding: 12px; border-radius: 8px; cursor: pointer;
+            margin-bottom: 6px; border: 1px solid #e2e8f0;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .file-item:hover { background: #eef2ff; border-color: #c7d2fe; }
+        .file-item-name { font-size: 13px; font-weight: 600; color: #1e293b; word-break: break-all; }
+        .file-item-time { font-size: 11px; color: #94a3b8; margin-top: 4px; }
+        .file-item-empty { text-align: center; color: #94a3b8; padding: 40px 0; font-size: 13px; }
+        .file-panel-upload {
+            padding: 16px 20px; border-top: 1px solid #e2e8f0;
+        }
+        .btn-upload {
+            width: 100%; padding: 12px; background: #4f46e5; color: #fff;
+            border: none; border-radius: 8px; font-size: 14px; font-weight: 600;
+            cursor: pointer; transition: background 0.2s;
+        }
+        .btn-upload:hover { background: #4338ca; }
+        .file-panel-backdrop {
+            position: fixed; inset: 0; z-index: 9996; background: rgba(0,0,0,0.3);
+            display: none;
+        }
+        .file-panel-backdrop.show { display: block; }
+        .file-item .file-delete {
+            float: right; background: none; border: none; color: #cbd5e1;
+            cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 4px;
+        }
+        .file-item .file-delete:hover { color: #ef4444; background: #fef2f2; }
+    </style>
+</head>
+<body>
+
+    <!-- ===== 首页 ===== -->
+    <div class="view-home" id="home-view">
+        <div class="hero-card">
+            <!-- 哈士奇 Logo -->
+            <div class="logo">
+                <img src="husky-translate.svg" alt="HUSKY">
+            </div>
+            <h1>HUSKY TRANSLATE</h1>
+            <p class="subtitle">值得信赖的翻译伙伴 · Your Trusted Language Companion</p>
+
+            <div class="input-group">
+                <label for="email-input">电子邮箱</label>
+                <input type="email" id="email-input" placeholder="请输入您的邮箱以开始..."
+                       oninput="triggerSilentPreload()">
+            </div>
+
+            <div class="btn-row">
+                <button class="btn btn-trial" id="trial-btn"
+                        onmouseenter="triggerSilentPreload()"
+                        onclick="startSession('trial')">游客试用</button>
+                <button class="btn btn-login" id="login-btn"
+                        onmouseenter="triggerSilentPreload()"
+                        onclick="startSession('login')">登录</button>
+            </div>
+
+            <div class="drop-zone" id="drop-zone"
+                 onmouseenter="triggerSilentPreload()"
+                 onclick="document.getElementById('file-input').click()"
+                 ondragover="event.preventDefault(); this.classList.add('drag-over')"
+                 ondragleave="this.classList.remove('drag-over')"
+                 ondrop="handleFileDrop(event)">
+                📁 拖拽文件到此处，或点击上传
+                <br><small>支持 docx, xlsx, pptx, pdf 等格式</small>
+            </div>
+            <input type="file" id="file-input" hidden accept=".docx,.xlsx,.pptx,.pdf,.doc,.xls,.ppt"
+                   onchange="handleFileSelect(event)">
+        </div>
+    </div>
+
+    <!-- ===== 编辑器容器 ===== -->
+    <div class="view-editor" id="editor-view">
+        <div id="iframe-placeholder"></div>
+    </div>
+
+    <!-- ===== 全局加载遮罩 ===== -->
+    <div class="overlay" id="loading-overlay">
+        <div class="loader-box">
+            <div class="status-text" id="status-text">正在准备中...</div>
+            <div class="progress-track">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+            <div class="hint-text" id="hint-text">首次加载约需 5-10 秒，后续可秒开</div>
+        </div>
+    </div>
+
+    <!-- ===== Toast ===== -->
+    <div class="toast" id="toast"></div>
+
+    <!-- ===== 文件面板按钮（编辑器右上角） ===== -->
+    <button class="file-panel-btn" id="file-panel-btn" onclick="toggleFilePanel()" title="我的文件">📂</button>
+
+    <!-- ===== 文件面板遮罩 ===== -->
+    <div class="file-panel-backdrop" id="file-panel-backdrop" onclick="closeFilePanel()"></div>
+
+    <!-- ===== 文件面板侧栏 ===== -->
+    <div class="file-panel" id="file-panel">
+        <div class="file-panel-header">
+            我的文件
+            <button class="file-panel-close" onclick="closeFilePanel()">✕</button>
+        </div>
+        <div class="file-panel-list" id="file-panel-list"></div>
+        <div class="file-panel-upload">
+            <button class="btn-upload" onclick="uploadFromPanel()">📤 上传文件</button>
+        </div>
+    </div>
+
+    <script>
+        // ========== 配置 ==========
+        // Document Server 通过 nginx /ds-api/ 代理（同源，避免浏览器拦截）
+        const DS_URL = '/ds-api';
+        const ONLYOFFICE_API_URL = DS_URL + '/web-apps/apps/api/documents/api.js';
+        const TRANSLATOR_GUID = "{7327FC95-16DA-41D9-9AF2-0E7F449F6800}";
+        const TRANSLATOR_ID = `asc.${TRANSLATOR_GUID}`;
+        const TRANSLATOR_CONFIG_URL = `${location.origin}${DS_URL}/sdkjs-plugins/${TRANSLATOR_GUID}/config.json`;
+        // 文档下载地址（OnlyOffice 容器内部可访问 portal 容器）
+        const DOC_HOST = 'http://portal:80';
+
+        // ========== 状态变量 ==========
+        let progress = 0;
+        let progressTimer = null;
+        let isPreloaded = false;
+        let currentUserEmail = '';
+        let currentDocKey = '';
+
+        const statusTexts = [
+            "正在连接云端服务器...",
+            "正在校验安全证书...",
+            "正在初始化排版引擎...",
+            "正在配置 AI 翻译助手..."
+        ];
+
+        // ========== Toast ==========
+        function showToast(msg, duration = 2000) {
+            const t = document.getElementById('toast');
+            t.textContent = msg; t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), duration);
+        }
+
+        // ========== 第二步：静默预加载 ==========
+        function triggerSilentPreload() {
+            if (isPreloaded) return;
+            isPreloaded = true;
+            const link = document.createElement('link');
+            link.rel = 'preload';
+            link.as = 'script';
+            link.href = ONLYOFFICE_API_URL;
+            document.head.appendChild(link);
+            console.log('[预加载] api.js 正在后台静默下载...');
+            showToast('正在后台预加载编辑器资源...');
+        }
+
+        // ========== 第三步：进度条系统 ==========
+        function showLoadingOverlay(fastMode, message) {
+            document.getElementById('loading-overlay').classList.add('active');
+            if (message) {
+                document.getElementById('status-text').innerText = message;
+            }
+            if (fastMode) {
+                document.getElementById('hint-text').innerText = message || '编辑器缓存命中，即刻进入...';
+                progress = 90;
+                updateProgressBar();
+                if (window.DocsAPI) {
+                    progress = 94;
+                    updateProgressBar();
+                    return;
+                }
+                startCreepTimer(92, 200);
+                return;
+            }
+            progress = 30;
+            updateProgressBar();
+
+            const speed = isPreloaded ? 80 : 150;
+            const maxProgress = isPreloaded ? 90 : 85;
+            progressTimer = setInterval(() => {
+                if (progress < maxProgress) {
+                    progress += Math.floor(Math.random() * 3) + (isPreloaded ? 3 : 1);
+                    if (progress > maxProgress) progress = maxProgress;
+                    updateProgressBar();
+                }
+            }, speed);
+        }
+
+        function startCreepTimer(target, interval = 400) {
+            clearInterval(progressTimer);
+            progressTimer = setInterval(() => {
+                if (progress < target) {
+                    progress += 0.5;
+                    if (progress > target) progress = target;
+                    updateProgressBar();
+                } else {
+                    clearInterval(progressTimer);
+                }
+            }, interval);
+        }
+
+        function updateProgressBar() {
+            document.getElementById('progress-bar').style.width = Math.round(progress) + '%';
+            const p = Math.round(progress);
+            document.getElementById('status-text').innerText =
+                p >= 98 ? '即将完成...' :
+                p >= 95 ? '正在呈现排版界面...' :
+                p >= 85 ? '正在配置 AI 翻译助手...' :
+                p >= 60 ? '正在初始化排版引擎...' :
+                p >= 35 ? '正在校验安全证书...' :
+                '正在连接云端服务器...';
+        }
+
+        function hideLoadingOverlay() {
+            const overlay = document.getElementById('loading-overlay');
+            overlay.classList.add('done');  // 立即释放点击
+            setTimeout(() => {
+                overlay.classList.remove('active');
+                document.getElementById('home-view').style.display = 'none';
+                document.getElementById('editor-view').style.display = 'block';
+                document.getElementById('file-panel-btn').classList.add('show');
+                // 记住编辑状态，刷新不丢
+                location.hash = 'editor';
+                sessionStorage.setItem('husky_editor_active', '1');
+            }, 300);
+        }
+
+        function showLoadError(message) {
+            clearInterval(progressTimer);
+            document.getElementById('loading-overlay').classList.remove('active');
+            alert(message);
+        }
+
+        // ========== 核心：加载脚本 + 初始化编辑器 ==========
+        function loadScript(url, callback) {
+            if (window.DocsAPI) { callback(); return; }
+            const script = document.createElement('script');
+            script.src = url;
+            script.onload = callback;
+            script.onerror = () => {
+                showLoadError('加载编辑器失败。请确认 OnlyOffice 服务已启动（nginx /ds-api/ 代理 → 端口 8090）');
+            };
+            document.head.appendChild(script);
+        }
+
+        function destroyEditor() {
+            const placeholder = document.getElementById('iframe-placeholder');
+            placeholder.innerHTML = '';
+            if (window.docEditor) {
+                try { window.docEditor.destroyEditor(); } catch (e) {}
+                window.docEditor = null;
+            }
+            sessionStorage.removeItem('husky_editor_active');
+            sessionStorage.removeItem('husky_editor_config');
+        }
+
+        function initEditor(config) {
+            destroyEditor();
+            config.events = {
+                onAppReady() {
+                    progress = 95;
+                    updateProgressBar();
+                    document.getElementById('status-text').innerText = '正在呈现排版界面...';
+                    startCreepTimer(98);
+                },
+                onDocumentReady() {
+                    clearInterval(progressTimer);
+                    progress = 100;
+                    updateProgressBar();
+                    document.getElementById('status-text').innerText = '加载完成！';
+                    localStorage.setItem('husky_visited', '1');
+                    hideLoadingOverlay();
+                },
+                onRequestSaveAs() {
+                    // 保存回调 — 需要对接后端 API
+                    console.log('[保存] 编辑器请求保存');
+                }
+            };
+            window.docEditor = new DocsAPI.DocEditor("iframe-placeholder", config);
+        }
+
+        // ========== 生成编辑器配置 ==========
+        function buildEditorConfig(fileUrl, fileName, fileType) {
+            // 根据扩展名判断文档类型
+            const ext = (fileName || '').split('.').pop().toLowerCase();
+            const typeMap = {
+                docx: 'word', doc: 'word', rtf: 'word',
+                xlsx: 'cell', xls: 'cell', csv: 'cell',
+                pptx: 'slide', ppt: 'slide',
+                pdf: 'pdf'
+            };
+            const docType = typeMap[ext] || 'word';
+
+            currentDocKey = 'doc_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+
+            const config = {
+                document: {
+                    fileType: ext,
+                    key: currentDocKey,
+                    title: fileName || 'Untitled.' + ext,
+                    url: fileUrl,
+                    permissions: {
+                        comment: false,
+                        download: true,
+                        edit: true,
+                        fillForms: true,
+                        print: true,
+                        review: false
+                    }
+                },
+                documentType: docType,
+                editorConfig: {
+                    lang: 'zh-CN',
+                    mode: 'edit',
+                    user: {
+                        id: currentUserEmail || 'guest',
+                        name: (currentUserEmail || 'guest').split('@')[0]
+                    },
+                    customization: {
+                        chat: false,
+                        comments: false,
+                        compactToolbar: true,
+                        help: false,
+                        plugins: true,
+                        zoom: 100
+                    },
+                    plugins: {
+                        autostart: [TRANSLATOR_ID],
+                        pluginsData: [TRANSLATOR_CONFIG_URL]
+                    }
+                },
+                height: '100%',
+                width: '100%'
+            };
+
+            // 保存配置到 sessionStorage，刷新时可恢复
+            sessionStorage.setItem('husky_editor_config', JSON.stringify({
+                fileUrl, fileName: fileName || 'Untitled.' + ext, email: currentUserEmail
+            }));
+
+            return config;
+        }
+
+        // ========== 开始试用 / 登录 ==========
+        function startSession(type) {
+            const email = document.getElementById('email-input').value.trim();
+            if (!email && type === 'login') {
+                alert('请输入邮箱！'); return;
+            }
+            currentUserEmail = email || 'guest@trial.local';
+            // 二次访问 api.js 已在缓存中，进度条秒闪
+            showLoadingOverlay(!!window.DocsAPI || isPreloaded);
+
+            loadScript(ONLYOFFICE_API_URL, () => {
+                progress = 90;
+                updateProgressBar();
+
+                // 使用项目内置测试文档（OnlyOffice 容器通过 Docker DNS 下载）
+                const sampleUrl = DOC_HOST + '/test_document.docx';
+                addToFileList('欢迎文档.docx', currentUserEmail);
+                const config = buildEditorConfig(sampleUrl, '欢迎文档.docx', 'docx');
+                initEditor(config);
+            });
+        }
+
+        // ========== 文件上传处理 ==========
+        function handleFileDrop(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drag-over');
+            const file = e.dataTransfer.files[0];
+            if (file) openFileInEditor(file);
+        }
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (file) openFileInEditor(file);
+        }
+
+        function makeUploadUrl(fileName) {
+            const ext = (fileName || '').split('.').pop().toLowerCase();
+            const safeName = (fileName || ('document.' + ext))
+                .replace(/[^\w.\-()\u4e00-\u9fa5]+/g, '_')
+                .replace(/^_+|_+$/g, '')
+                .slice(0, 120) || ('document.' + ext);
+            const token = Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+            return '/uploads/' + encodeURIComponent(token + '-' + safeName);
+        }
+
+        async function uploadFile(file) {
+            const path = makeUploadUrl(file.name);
+            const uploadUrl = window.location.origin + path;
+            return new Promise((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open('PUT', uploadUrl, true);
+                xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+                xhr.onload = () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve({ fileName: file.name, url: path });
+                    } else {
+                        reject(new Error('上传失败: HTTP ' + xhr.status));
+                    }
+                };
+                xhr.onerror = () => reject(new Error('网络错误，上传失败'));
+                xhr.send(file);
+            });
+        }
+
+        async function openFileInEditor(file) {
+            destroyEditor();
+            showLoadingOverlay(false);
+            addToFileList(file.name, currentUserEmail || 'guest');
+
+            try {
+                const uploaded = await uploadFile(file);
+                progress = 55;
+                updateProgressBar();
+
+                // 下载 URL：OnlyOffice 容器通过 Docker DNS 访问 portal
+                const fileUrl = DOC_HOST + uploaded.url;
+                loadScript(ONLYOFFICE_API_URL, () => {
+                    progress = 90;
+                    updateProgressBar();
+                    const config = buildEditorConfig(fileUrl, uploaded.fileName || file.name);
+                    initEditor(config);
+                });
+            } catch (error) {
+                showLoadError('上传文件失败：' + (error.message || error));
+            }
+        }
+
+        // ========== 文件面板管理 ==========
+        function getFileList() {
+            try { return JSON.parse(localStorage.getItem('husky_file_list') || '[]'); }
+            catch (e) { return []; }
+        }
+        function saveFileList(list) {
+            localStorage.setItem('husky_file_list', JSON.stringify(list));
+            renderFilePanel();
+        }
+        function addToFileList(fileName, email) {
+            const list = getFileList();
+            list.unshift({ name: fileName, time: new Date().toLocaleString(), email: email || 'guest' });
+            if (list.length > 20) list.length = 20;
+            saveFileList(list);
+        }
+        function removeFromFileList(index) {
+            const list = getFileList();
+            list.splice(index, 1);
+            saveFileList(list);
+        }
+        function renderFilePanel() {
+            const container = document.getElementById('file-panel-list');
+            const list = getFileList();
+            if (!list.length) {
+                container.innerHTML = '<div class="file-item-empty">暂无文件记录<br>上传文件开始翻译</div>';
+                return;
+            }
+            container.innerHTML = list.map((f, i) =>
+                `<div class="file-item" onclick="reopenFile(${i})">
+                    <button class="file-delete" onclick="event.stopPropagation();removeFromFileList(${i})">🗑</button>
+                    <div class="file-item-name">📄 ${escHtml(f.name)}</div>
+                    <div class="file-item-time">${f.time}</div>
+                </div>`
+            ).join('');
+        }
+        function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+        function toggleFilePanel() {
+            const panel = document.getElementById('file-panel');
+            const backdrop = document.getElementById('file-panel-backdrop');
+            const open = panel.classList.contains('open');
+            if (open) { closeFilePanel(); }
+            else { renderFilePanel(); panel.classList.add('open'); backdrop.classList.add('show'); }
+        }
+        function closeFilePanel() {
+            document.getElementById('file-panel').classList.remove('open');
+            document.getElementById('file-panel-backdrop').classList.remove('show');
+        }
+        function uploadFromPanel() {
+            const input = document.getElementById('file-input');
+            input.click();
+        }
+        function reopenFile(index) {
+            const list = getFileList();
+            if (index < 0 || index >= list.length) return;
+            closeFilePanel();
+            showToast('仅记录已打开文件，请重新上传以编辑');
+        }
+
+        // ========== 首次自动预加载（页面加载后 2 秒） ==========
+        window.addEventListener('DOMContentLoaded', () => {
+            // 老用户：更新提示文案
+            if (localStorage.getItem('husky_visited')) {
+                document.getElementById('hint-text').innerText = '欢迎回来！编辑器已缓存，秒级开启';
+            }
+
+            // ===== 新增：从 Cloudreve 传参直接打开文件（跳过登录） =====
+            const params = new URLSearchParams(location.search);
+            const cloudFile = params.get('file');
+            const cloudName = params.get('name');
+            if (cloudFile) {
+                currentUserEmail = 'cloudreve@husky.local';
+                // 把 Cloudreve 的 URL 转成 Docker 内部地址
+                // 因为 ONLYOFFICE 容器需要用 Docker DNS 下载文件
+                // Cloudreve URL 可能是 localhost:5212 或 127.0.0.1:8080
+                let internalUrl = decodeURIComponent(cloudFile);
+                internalUrl = internalUrl.replace(
+                    /http:\/\/localhost:5212/,
+                    'http://cloudreve:5212'
+                ).replace(
+                    /http:\/\/127\.0\.0\.1:8080/,
+                    'http://cloudreve:5212'
+                );
+                const fileName = decodeURIComponent(cloudName || '') ||
+                    internalUrl.split('/').pop().split('?')[0] ||
+                    'document.docx';
+                showLoadingOverlay(true);
+                loadScript(ONLYOFFICE_API_URL, () => {
+                    progress = 90;
+                    updateProgressBar();
+                    addToFileList(fileName, currentUserEmail);
+                    const config = buildEditorConfig(internalUrl, fileName);
+                    initEditor(config);
+                });
+                return;
+            }
+
+            // 自动恢复编辑会话（刷新不丢）
+            if (location.hash === '#editor' && sessionStorage.getItem('husky_editor_active')) {
+                const saved = sessionStorage.getItem('husky_editor_config');
+                if (saved) {
+                    try {
+                        const cfg = JSON.parse(saved);
+                        currentUserEmail = cfg.email || 'guest@trial.local';
+                        showLoadingOverlay(true);  // 刷新恢复 = 必定缓存命中
+                        loadScript(ONLYOFFICE_API_URL, () => {
+                            progress = 90;
+                            updateProgressBar();
+                            const config = buildEditorConfig(cfg.fileUrl, cfg.fileName);
+                            initEditor(config);
+                        });
+                        return;
+                    } catch (e) { /* fall through */ }
+                }
+            }
+            // 清理残留状态
+            sessionStorage.removeItem('husky_editor_active');
+            sessionStorage.removeItem('husky_editor_config');
+            // 页面完全渲染后 2 秒，后台开始预加载
+            setTimeout(triggerSilentPreload, 2000);
+        });
+    </script>
+</body>
+</html>
