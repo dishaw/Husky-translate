@@ -63,9 +63,6 @@ async function huskyUpdateSelectionCache(source) {
 	try {
 		if (localStorage.getItem("husky_page_translate_active") === "1")
 			return;
-		// 写回进行中时跳过：避免缓存 ReplaceTextSmart 执行期间的中间态
-		if (localStorage.getItem("husky_write_task"))
-			return;
 		if (!Asc || !Asc.Library || typeof Asc.Library.GetSelectedText !== "function")
 			return;
 		let text = huskyNormalizeSelectionText(await Asc.Library.GetSelectedText());
@@ -1760,13 +1757,12 @@ function startHuskyPolling() {
 function startHuskyWritePolling() {
 	if (_huskyWriteTimer) return;
 
-	// 启动时预填旧任务 key，防止上次会话未清理的写回任务在新文档里重放
 	try {
-		var _pt = localStorage.getItem("husky_write_text") || "";
-		var _pk = localStorage.getItem("husky_write_task") || "";
-		var _ps = localStorage.getItem("husky_write_ts")   || "";
-		if (_pt && _pk && _ps)
-			_huskyLastWriteKey = _pk + ":" + _ps + ":" + _pt;
+		var oldText = localStorage.getItem("husky_write_text") || "";
+		var oldTask = localStorage.getItem("husky_write_task") || "";
+		var oldTs = localStorage.getItem("husky_write_ts") || "";
+		if (oldText && oldTask && oldTs)
+			_huskyLastWriteKey = oldTask + ":" + oldTs + ":" + oldText;
 	} catch (e) {}
 
 	_huskyWriteTimer = setInterval(function() {

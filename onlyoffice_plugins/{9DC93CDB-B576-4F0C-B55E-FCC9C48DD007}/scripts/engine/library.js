@@ -62,9 +62,11 @@
 	};
 
 	Editor.getType = function() {
-		if (Asc.plugin.info.editorSubType === "pdf")
+		let plugin = window.Asc && window.Asc.plugin;
+		let info = plugin && plugin.info ? plugin.info : {};
+		if (info.editorSubType === "pdf")
 			return "pdf";
-		return window.Asc.plugin.info.editorType;
+		return info.editorType || "";
 	};
 
 	exports.Asc = exports.Asc || {};
@@ -396,6 +398,222 @@
 
 	Library.prototype.ReplaceTextSmart = async function(text)
 	{
+		if (Asc.Editor.getType() === "cell") {
+			Asc.scope.huskyCellValue = Array.isArray(text) ? text.join("\n") : String(text == null ? "" : text);
+			Asc.scope.huskyCellValues = Array.isArray(text)
+				? text.map(function(item) { return String(item == null ? "" : item); })
+				: String(text == null ? "" : text).replace(/\r\n/g, "\n").replace(/\r/g, "\n").split(/\t|\n/);
+			while (Asc.scope.huskyCellValues.length > 1 && Asc.scope.huskyCellValues[Asc.scope.huskyCellValues.length - 1] === "")
+				Asc.scope.huskyCellValues.pop();
+
+			return await Editor.callCommand(function() {
+				function getRangeAddress(range) {
+					if (!range) return "";
+					try {
+						if (typeof range.GetAddress === "function") return range.GetAddress() || "";
+					} catch (e) {}
+					try {
+						if (typeof range.Address !== "undefined") return range.Address || "";
+					} catch (e) {}
+					return "";
+				}
+				function getFirstCellAddress(address) {
+					var addr = (address || "").toString();
+					if (!addr) return "";
+					var bangIndex = addr.lastIndexOf("!");
+					if (bangIndex >= 0) addr = addr.substring(bangIndex + 1);
+					return addr.split(",")[0].split(":")[0].replace(/\$/g, "").replace(/'/g, "");
+				}
+				function getCellAddress(cell) {
+					if (!cell) return "";
+					try {
+						if (typeof cell.GetAddress === "function") return cell.GetAddress() || "";
+					} catch (e) {}
+					try {
+						if (typeof cell.Address !== "undefined") return cell.Address || "";
+					} catch (e) {}
+					return "";
+				}
+				function setValue(cell, value) {
+					try {
+						if (cell && typeof cell.SetValue === "function") {
+							cell.SetValue(value);
+							return true;
+						}
+					} catch (e) {}
+					try {
+						if (cell && typeof cell.Value !== "undefined") {
+							cell.Value = value;
+							return true;
+						}
+					} catch (e) {}
+					return false;
+				}
+				function getValue(cell) {
+					try {
+						if (cell && typeof cell.GetValue === "function") return cell.GetValue();
+					} catch (e) {}
+					try {
+						if (cell && typeof cell.Value !== "undefined") return cell.Value;
+					} catch (e) {}
+					return "";
+				}
+				function hasText(value) {
+					return String(value == null ? "" : value).replace(/\s+/g, "").length > 0;
+				}
+				function nextNonEmptyValue(values, startIndex) {
+					for (var i = startIndex; i < values.length; i++) {
+						if (hasText(values[i])) return { index: i, value: values[i] };
+					}
+					return null;
+				}
+				function collectSelectedCells(range) {
+					var list = [];
+					if (!range) return list;
+					try {
+						if (typeof range.ForEach === "function") {
+							range.ForEach(function(cell) {
+								if (cell) list.push(cell);
+							});
+						}
+					} catch (e) {}
+					if (!list.length) {
+						try {
+							if (typeof range.GetCells === "function") {
+								var firstCell = range.GetCells(1, 1);
+								if (firstCell) list.push(firstCell);
+							}
+						} catch (e) {}
+					}
+					try {
+						list.sort(function(a, b) {
+							var ar = typeof a.Row === "number" ? a.Row : 0;
+							var br = typeof b.Row === "number" ? b.Row : 0;
+							var ac = typeof a.Col === "number" ? a.Col : 0;
+							var bc = typeof b.Col === "number" ? b.Col : 0;
+							return (ar - br) || (ac - bc);
+						});
+					} catch (e) {}
+					return list;
+				}
+				function hasMergeInfo(target) {
+					if (!target) return false;
+					var methods = ["IsMerged", "IsMerge", "GetMerge", "GetMergeArea", "GetMergedRange", "GetMergeCells"];
+					for (var i = 0; i < methods.length; i++) {
+						try {
+							if (typeof target[methods[i]] === "function") {
+								var result = target[methods[i]]();
+								if (result) return true;
+							}
+						} catch (e) {}
+					}
+					return false;
+				}
+				function getMergeRange(target) {
+					if (!target) return null;
+					var methods = ["GetMergeArea", "GetMergedRange", "GetMergeCells", "GetMerge"];
+					for (var i = 0; i < methods.length; i++) {
+						try {
+							if (typeof target[methods[i]] === "function") {
+								var result = target[methods[i]]();
+								if (result && typeof result === "object") return result;
+							}
+						} catch (e) {}
+					}
+					return null;
+				}
+				function isArray(value) {
+					return Object.prototype.toString.call(value) === "[object Array]";
+				}
+				function isSingleMergedSelection(range, cells) {
+					if (!range) return false;
+					try {
+						var value = typeof range.GetValue === "function" ? range.GetValue() : null;
+						if (value !== null && !isArray(value) && hasMergeInfo(range)) return true;
+						if (cells && cells.length > 1 && value !== null && !isArray(value)) return true;
+					} catch (e) {}
+					try {
+						var mergeRange = getMergeRange(range);
+						if (mergeRange && getRangeAddress(mergeRange) === getRangeAddress(range)) return true;
+					} catch (e) {}
+					return false;
+				}
+				function setFirstCellValue(range, ws, value) {
+					try {
+						if (range && typeof range.GetCells === "function") {
+							var firstCell = range.GetCells(1, 1);
+							if (setValue(firstCell, value)) return true;
+						}
+					} catch (e) {}
+					try {
+						var address = getFirstCellAddress(getRangeAddress(range));
+						if (address && ws && typeof ws.GetRange === "function") {
+							var cell = ws.GetRange(address);
+							if (setValue(cell, value)) return true;
+						}
+					} catch (e) {}
+					return setValue(range, value);
+				}
+				function getLogicalCellKey(cell) {
+					var mergeRange = getMergeRange(cell);
+					var mergeAddress = getRangeAddress(mergeRange);
+					if (mergeAddress) return "merge:" + mergeAddress;
+					return "cell:" + getCellAddress(cell);
+				}
+				function setLogicalCellValue(cell, ws, value) {
+					var mergeRange = getMergeRange(cell);
+					if (mergeRange) return setFirstCellValue(mergeRange, ws, value);
+					return setValue(cell, value);
+				}
+				function getLogicalCellValue(cell) {
+					var mergeRange = getMergeRange(cell);
+					if (mergeRange) {
+						try {
+							if (typeof mergeRange.GetCells === "function") return getValue(mergeRange.GetCells(1, 1));
+						} catch (e) {}
+						return getValue(mergeRange);
+					}
+					return getValue(cell);
+				}
+				var ws = Api.GetActiveSheet();
+				var selection = null;
+				try {
+					if (typeof Api.GetSelection === "function") selection = Api.GetSelection();
+				} catch (e) {}
+				if (!selection && ws && typeof ws.GetSelection === "function") {
+					try {
+						selection = ws.GetSelection();
+					} catch (e) {}
+				}
+				if (!ws || !selection) return false;
+				var cells = collectSelectedCells(selection);
+				var values = Asc.scope.huskyCellValues || [];
+				var fullValue = Asc.scope.huskyCellValue || "";
+				if (isSingleMergedSelection(selection, cells))
+					return setFirstCellValue(selection, ws, fullValue);
+				if (cells.length > 1) {
+					var valueIndex = 0;
+					var writtenCount = 0;
+					var seen = {};
+					for (var i = 0; i < cells.length && valueIndex < values.length; i++) {
+						var cellKey = getLogicalCellKey(cells[i]);
+						if (cellKey && seen[cellKey]) continue;
+						if (cellKey) seen[cellKey] = true;
+						if (!hasText(getLogicalCellValue(cells[i]))) continue;
+						var translatedValue = nextNonEmptyValue(values, valueIndex);
+						if (!translatedValue) break;
+						if (setLogicalCellValue(cells[i], ws, translatedValue.value)) {
+							writtenCount++;
+							valueIndex = translatedValue.index + 1;
+						}
+					}
+					return writtenCount > 0;
+				}
+				if (setFirstCellValue(selection, ws, fullValue)) return true;
+				return setValue(selection, fullValue);
+			});
+		}
+
 		if (Asc.Editor.getType() !== "word")
 			return await Editor.callMethod("ReplaceTextSmart", [text]);
 
@@ -604,7 +822,7 @@
 			Asc.scope.url = url;
 		}
 
-		switch (window.Asc.plugin.info.editorType) {
+		switch (Asc.Editor.getType()) {
 			case "word": {
 				return await Editor.callCommand(function() {
 					let document = Api.GetDocument();
@@ -635,7 +853,7 @@
 	};
 
 	Library.prototype.AddOleObject = async function(imageUrl, data) {
-		switch (window.Asc.plugin.info.editorType) {
+		switch (Asc.Editor.getType()) {
 			case "word": {
 				await Editor.callCommand(function(){
 					let document = Api.GetDocument();
@@ -685,9 +903,8 @@
 
 	Library.prototype.getTranslateResult = function(data, dataSrc) {
 		data = this.trimResult(data, 0, true);
-		// 去掉 LLM 返回的行号前缀 [N]
+		// Strip line markers used to keep spreadsheet and table rows aligned.
 		data = data.replace(/^\[\d+\]\s*/gm, "");
-		// 去掉每行末的 markdown 换行空格（"  "）及多余空白，防止写进 Word 产生额外换行
 		data = data.replace(/[ \t]+$/gm, "");
 		let trimC = ["\"", "'", "\n", "\r", " "];
 		if (dataSrc.length > 0 && trimC.includes(dataSrc[0])) {
@@ -744,15 +961,22 @@ Here is the text that needs revision: \"${content}\"`;
 			return prompt;
 		},
 		getTranslatePrompt(content, language) {
-			// 给每行加上 [N] 行号前缀，让 LLM 保持行结构
+			let prompt = "Translate the following text to " + language;
+			if (Editor.getType() !== "cell") {
+				prompt += ". Return only the resulting text.";
+				prompt += "Text: \"\"\"\n";
+				prompt += content;
+				prompt += "\n\"\"\"";
+				return prompt;
+			}
+
 			var lines = content.split("\n");
 			var marked = "";
 			for (var i = 0; i < lines.length; i++) {
 				marked += "[" + (i + 1) + "] " + lines[i];
 				if (i < lines.length - 1) marked += "\n";
 			}
-			let prompt = "Translate the following text to " + language;
-			prompt += ". Each line starts with [N] which is a line number — keep the [N] markers in the exact same order. Do not reorder, merge, or skip any lines. Tab characters separate table cells. Return only the resulting translated text.";
+			prompt += ". Each line starts with [N] which is a line number. Keep the [N] markers in the exact same order. Do not reorder, merge, or skip any lines. Tab characters separate table cells. Return only the resulting translated text.";
 			prompt += "Text: \"\"\"\n";
 			prompt += marked;
 			prompt += "\n\"\"\"";

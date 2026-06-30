@@ -63,6 +63,11 @@
             gap: 14px;
         }
 
+        .logo-row > div {
+            flex: 1;
+            min-width: 190px;
+        }
+
         .logo-row img {
             width: 81px;
             height: 81px;
@@ -83,10 +88,11 @@
 
         .lead {
             margin: 0;
-            max-width: 520px;
+            max-width: none;
             color: var(--muted);
             font-size: 16px;
             line-height: 1.7;
+            white-space: nowrap;
         }
 
         .mini {
@@ -321,7 +327,7 @@
                 <div class="logo-row">
                     <img src="husky-translate.svg" alt="HUSKY">
                     <div>
-                        <div class="mark">HUSKY TRANSLATE</div>
+                        <div class="mark">HUSKY<br>TRANSLATE</div>
                         <div class="lead">更懂你的翻译伙伴</div>
                     </div>
                 </div>
@@ -396,9 +402,6 @@
         const TRANSLATOR_GUID = "{7327FC95-16DA-41D9-9AF2-0E7F449F6800}";
         const TRANSLATOR_ID = `asc.${TRANSLATOR_GUID}`;
         const TRANSLATOR_CONFIG_URL = `${location.origin}${DOCUMENT_SERVER_ORIGIN}/sdkjs-plugins/${TRANSLATOR_GUID}/config.json?v=${Date.now()}`;
-        const AI_GUID = "{9DC93CDB-B576-4F0C-B55E-FCC9C48DD007}";
-        const AI_ID = `asc.${AI_GUID}`;
-        const AI_CONFIG_URL = `${location.origin}${DOCUMENT_SERVER_ORIGIN}/sdkjs-plugins/${AI_GUID}/config.json?v=${Date.now()}`;
         const HUSKY_GUID = "{F30BDD79-23A0-4B05-8DE3-2AB77D03A1B5}";
         const HUSKY_ID = `asc.${HUSKY_GUID}`;
 
@@ -651,6 +654,40 @@
 
         runFileCleanups(); // 在页面初始化时执行待清理任务
 
+        function clearHuskyPluginTasks() {
+            try {
+                [
+                    "husky_selection_text",
+                    "husky_selection_ts",
+                    "husky_selection_source",
+                    "husky_selection_result",
+                    "husky_write_text",
+                    "husky_write_task",
+                    "husky_write_ts",
+                    "husky_write_expected_count",
+                    "husky_write_result",
+                    "husky_write_result_task",
+                    "husky_write_result_ts",
+                    "husky_write_error",
+                    "husky_write_error_task",
+                    "husky_write_error_ts",
+                    "husky_page_translate_active",
+                    "husky_page_translate_task",
+                    "husky_page_translate_page",
+                    "husky_page_translate_page_count",
+                    "husky_page_translate_expected_count",
+                    "husky_page_translate_result",
+                    "husky_page_translate_result_task",
+                    "husky_page_translate_result_page",
+                    "husky_page_translate_result_ts",
+                    "husky_page_translate_error",
+                    "husky_page_translate_error_task",
+                    "husky_page_translate_error_page",
+                    "husky_page_translate_error_ts"
+                ].forEach(key => localStorage.removeItem(key));
+            } catch (e) {}
+        }
+
         function destroyEditor() {
             if (window.docEditor) {
                 try { window.docEditor.destroyEditor(); } catch (e) {}
@@ -662,6 +699,7 @@
                 localStorage.removeItem("husky_selection_ts");
                 localStorage.removeItem("husky_selection_source");
             } catch (e) {}
+            clearHuskyPluginTasks();
             document.getElementById("editor-frame").innerHTML = "";
         }
 
@@ -702,8 +740,8 @@
                         zoom: 100
                     },
                     plugins: {
-                        autostart: [AI_ID, HUSKY_ID],
-                        pluginsData: [AI_CONFIG_URL, TRANSLATOR_CONFIG_URL]
+                        autostart: [HUSKY_ID],
+                        pluginsData: [TRANSLATOR_CONFIG_URL]
                     }
                 },
                 events: {
@@ -781,8 +819,8 @@
                         zoom: 100
                     },
                     plugins: {
-                        autostart: [AI_ID, HUSKY_ID],
-                        pluginsData: [AI_CONFIG_URL, TRANSLATOR_CONFIG_URL]
+                        autostart: [HUSKY_ID],
+                        pluginsData: [TRANSLATOR_CONFIG_URL]
                     }
                 },
                 events: {

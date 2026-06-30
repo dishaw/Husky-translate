@@ -13,7 +13,7 @@
 	<script type="text/javascript" src="scripts/engine/providers/base.js"></script>
 	<script type="text/javascript" src="scripts/engine/providers/provider.js"></script>
 	<script type="text/javascript" src="scripts/engine/engine.js"></script>
-	<script type="text/javascript" src="scripts/engine/library.js"></script>
+	<script type="text/javascript" src="scripts/engine/library.js?v=husky-safe-editor-type-20260630"></script>
 	<script type="text/javascript" src="scripts/engine/register.js"></script>
 	<style>
 		html, body {
@@ -445,10 +445,6 @@
 						}
 						delete pluginInfo.aiPluginSettings;
 					}
-					// 先加载持久化的模型数据（AI.Models / AI.Providers）
-					try {
-						await AI.Storage.load();
-					} catch (e) {}
 					ensureTranslationAction();
 					try {
 						await AI.loadInternalProviders();
@@ -525,13 +521,6 @@
 			}
 
 			async function getFreshSelectionText() {
-				// 优先从 AI 后台缓存读取（保留了 \t 制表符），避免自己读选区时丢失表格结构
-				try {
-					var cached = localStorage.getItem("husky_selection_text") || "";
-					if (normalizeText(cached)) {
-						return normalizeText(cached);
-					}
-				} catch(e) {}
 				return await new Promise(function(resolve) {
 					readSelectedTextDirect(function(text) {
 						resolve(normalizeText(text) || selectedText);
@@ -630,21 +619,24 @@
 					localStorage.removeItem("husky_write_result");
 					localStorage.removeItem("husky_write_error");
 					localStorage.setItem("husky_write_text", text || "");
-					// 使用和 AI 后台一致的 parseTranslatedParagraphs 计算段落数
-					localStorage.setItem("husky_write_expected_count", String(parseTranslatedParagraphs(selectedText).length));
+					localStorage.setItem("husky_write_expected_count", String(countTextParagraphs(selectedText)));
 					localStorage.setItem("husky_write_task", taskId);
 					localStorage.setItem("husky_write_ts", String(started));
 				} catch (e) {
 					throw new Error("无法提交后台写回任务：" + (e && e.message ? e.message : e));
 				}
-				await waitForBackgroundWrite(taskId, started, 25000);
-				// 写回完成后清理输入 key，让 huskyUpdateSelectionCache 守卫解除
 				try {
-					localStorage.removeItem("husky_write_text");
-					localStorage.removeItem("husky_write_task");
-					localStorage.removeItem("husky_write_ts");
-					localStorage.removeItem("husky_write_expected_count");
-				} catch (e) {}
+					await waitForBackgroundWrite(taskId, started, 25000);
+				} finally {
+					try {
+						if ((localStorage.getItem("husky_write_task") || "") === taskId) {
+							localStorage.removeItem("husky_write_text");
+							localStorage.removeItem("husky_write_task");
+							localStorage.removeItem("husky_write_ts");
+							localStorage.removeItem("husky_write_expected_count");
+						}
+					} catch (e) {}
+				}
 			}
 
 			async function writeBack(text) {
@@ -913,15 +905,8 @@
 					throw new Error("请先在 AI 插件中为 Translation 配置模型");
 				}
 				var prompt = Asc.Prompts.getTranslatePrompt(text, languageSelect.value);
-				console.log("[HUSKY PANEL] === SEND TO LLM ===");
-				console.log("[HUSKY PANEL] Source text (" + text.length + " chars):", text);
-				console.log("[HUSKY PANEL] Target:", languageSelect.value);
-				console.log("[HUSKY PANEL] Prompt:", prompt);
 				var result = await requestEngine.chatRequest(prompt);
-				console.log("[HUSKY PANEL] === LLM RESPONSE ===");
-				console.log("[HUSKY PANEL] Raw result (" + (result ? result.length : 0) + " chars):", result);
 				result = result ? Asc.Library.getTranslateResult(result, text) : "";
-				console.log("[HUSKY PANEL] After getTranslateResult:", result);
 				if (!normalizeText(result)) {
 					throw new Error("翻译结果为空");
 				}
@@ -1037,16 +1022,6 @@
 			}
 
 			window.Asc.plugin.init = function(text) {
-				// 每次新文档初始化时强制清空面板，防止上一个文档的译文残留
-				resultPreview.value = "";
-				resultPreview.placeholder = "选中文本后可手动翻译并写回...";
-				selectedText = "";
-				translatedText = "";
-				translatedSource = "";
-				selectionVersion++;
-				setStatus("请选择要翻译的文本");
-				// 跳过上一个文档残留的选区缓存，避免轮询把旧选区重新填入面板
-				try { lastSelectionCacheTs = localStorage.getItem("husky_selection_ts") || ""; } catch (e) {}
 				syncOptions();
 				refreshSelectionFromEditor(text, "init");
 			};
