@@ -4,11 +4,11 @@
 		"zh": "Husky"
 	},
 	"guid": "asc.{F30BDD79-23A0-4B05-8DE3-2AB77D03A1B5}",
-	"version": "1.0.14",
+	"version": "1.0.15",
 	"variations": [
 		{
 			"description": "Husky AI translate",
-			"url": "index.html?v=husky-safe-editor-type-20260630",
+			"url": "index.html?v=husky-debug-escape-20260630",
 			"icons": "husky-translate.svg",
 			"isViewer": false,
 			"EditorsSupport": [

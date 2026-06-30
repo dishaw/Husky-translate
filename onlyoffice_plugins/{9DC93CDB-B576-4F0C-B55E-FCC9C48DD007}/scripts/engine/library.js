@@ -340,6 +340,66 @@
 
 	Library.prototype.GetSelectedText = async function()
 	{
+		// For spreadsheets, read all selected cells via callCommand so that
+		// multi-column selections always come back as tab-separated rows,
+		// matching what ReplaceTextSmart expects for the write-back path.
+		if (Asc.Editor.getType() === "cell") {
+			let cellText = await Editor.callCommand(function() {
+				function getValue(cell) {
+					try { if (typeof cell.GetValue === "function") return cell.GetValue(); } catch(e) {}
+					try { if (typeof cell.Value !== "undefined") return cell.Value; } catch(e) {}
+					return "";
+				}
+
+				var ws = Api.GetActiveSheet();
+				var selection = null;
+				try { if (typeof Api.GetSelection === "function") selection = Api.GetSelection(); } catch(e) {}
+				if (!selection && ws && typeof ws.GetSelection === "function") {
+					try { selection = ws.GetSelection(); } catch(e) {}
+				}
+				if (!ws || !selection) return "";
+
+				var cells = [];
+				try {
+					if (typeof selection.ForEach === "function") {
+						selection.ForEach(function(cell) {
+							if (!cell) return;
+							cells.push({
+								row: typeof cell.Row === "number" ? cell.Row : 0,
+								col: typeof cell.Col === "number" ? cell.Col : 0,
+								val: getValue(cell)
+							});
+						});
+					}
+				} catch(e) {}
+
+				if (!cells.length) return "";
+
+				cells.sort(function(a, b) { return (a.row - b.row) || (a.col - b.col); });
+
+				var rows = [];
+				var curRow = cells[0].row;
+				var rowCells = [];
+				for (var i = 0; i < cells.length; i++) {
+					if (cells[i].row !== curRow) {
+						rows.push(rowCells.join("\t"));
+						rowCells = [];
+						curRow = cells[i].row;
+					}
+					// Encode in-cell newlines as ⏎ (U+23CE) so they don't collide with the
+				// \n row-separator used to join rows.  ⏎ is a visible symbol that AI
+				// models preserve as-is (unlike \r which gets normalized to \n).
+				// ReplaceTextSmart restores ⏎ → \n when writing each cell value back.
+				rowCells.push(String(cells[i].val == null ? "" : cells[i].val).replace(/\n/g, "⏎"));
+				}
+				rows.push(rowCells.join("\t"));
+				return rows.join("\n");
+			});
+
+			this.lastSelectionParagraphCount = 0;
+			return cellText || "";
+		}
+
 		let result = await Editor.callMethod("GetSelectedText");
 		if (result !== "") {
 			this.lastSelectionParagraphCount = await this.GetSelectedParagraphCount(result);
@@ -435,15 +495,18 @@
 					return "";
 				}
 				function setValue(cell, value) {
+					// Restore ⏎ → \n: in-cell newlines were encoded as ⏎ (U+23CE) during
+					// GetSelectedText to survive AI translation without being normalised.
+					var restored = String(value == null ? "" : value).replace(/⏎/g, "\n");
 					try {
 						if (cell && typeof cell.SetValue === "function") {
-							cell.SetValue(value);
+							cell.SetValue(restored);
 							return true;
 						}
 					} catch (e) {}
 					try {
 						if (cell && typeof cell.Value !== "undefined") {
-							cell.Value = value;
+							cell.Value = restored;
 							return true;
 						}
 					} catch (e) {}
@@ -529,8 +592,12 @@
 					if (!range) return false;
 					try {
 						var value = typeof range.GetValue === "function" ? range.GetValue() : null;
+						// Only treat as a single logical cell when the range itself carries merge
+						// metadata — never just because cells.length > 1 and GetValue() returned
+						// the first cell's scalar.  That second condition was a false positive that
+						// caused every multi-cell selection to collapse all translated text into
+						// the top-left cell instead of writing each value back individually.
 						if (value !== null && !isArray(value) && hasMergeInfo(range)) return true;
-						if (cells && cells.length > 1 && value !== null && !isArray(value)) return true;
 					} catch (e) {}
 					try {
 						var mergeRange = getMergeRange(range);
@@ -903,6 +970,25 @@
 
 	Library.prototype.getTranslateResult = function(data, dataSrc) {
 		data = this.trimResult(data, 0, true);
+
+		// If the response is a JSON array (used for spreadsheet cell-by-cell
+		// translation), join elements with newlines so downstream code sees
+		// one translated value per line — matching huskyParseTranslatedParagraphs.
+		var jsonArr = null;
+		try {
+			// Handle optional ```json ... ``` markdown wrapper
+			var jsonStr = data.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+			var firstBracket = jsonStr.indexOf("[");
+			var lastBracket  = jsonStr.lastIndexOf("]");
+			if (firstBracket !== -1 && lastBracket > firstBracket) {
+				var parsed = JSON.parse(jsonStr.slice(firstBracket, lastBracket + 1));
+				if (Array.isArray(parsed)) jsonArr = parsed;
+			}
+		} catch(e) {}
+		if (jsonArr) {
+			return jsonArr.map(function(v) { return String(v == null ? "" : v); }).join("\n");
+		}
+
 		// Strip line markers used to keep spreadsheet and table rows aligned.
 		data = data.replace(/^\[\d+\]\s*/gm, "");
 		data = data.replace(/[ \t]+$/gm, "");
@@ -970,16 +1056,19 @@ Here is the text that needs revision: \"${content}\"`;
 				return prompt;
 			}
 
-			var lines = content.split("\n");
-			var marked = "";
-			for (var i = 0; i < lines.length; i++) {
-				marked += "[" + (i + 1) + "] " + lines[i];
-				if (i < lines.length - 1) marked += "\n";
+			// For spreadsheets, send cells as a JSON array.
+			// JSON format is unambiguous — the AI cannot accidentally merge
+			// elements — and the element count is trivially verifiable.
+			var rows = content.split("\n");
+			var cells = [];
+			for (var ri = 0; ri < rows.length; ri++) {
+				var rowCells = rows[ri].split("\t");
+				for (var ci = 0; ci < rowCells.length; ci++) {
+					cells.push(rowCells[ci]);
+				}
 			}
-			prompt += ". Each line starts with [N] which is a line number. Keep the [N] markers in the exact same order. Do not reorder, merge, or skip any lines. Tab characters separate table cells. Return only the resulting translated text.";
-			prompt += "Text: \"\"\"\n";
-			prompt += marked;
-			prompt += "\n\"\"\"";
+			prompt += " to " + language + ". I am giving you a JSON array where every element is the text of one spreadsheet cell. Translate each element independently. Return ONLY a valid JSON array with exactly the same number of elements in the same order. Do not merge, skip, or add elements. Do not include any text outside the JSON array. The ⏎ character (U+23CE) represents an in-cell line break — preserve it exactly as ⏎ in your output, do not replace it with \\n or any other character.";
+			prompt += "\n" + JSON.stringify(cells);
 			return prompt;
 		},
 		getExplainPrompt(content) {

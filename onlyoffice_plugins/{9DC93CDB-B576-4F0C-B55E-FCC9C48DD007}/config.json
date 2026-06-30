@@ -20,7 +20,7 @@
 	"variations": [
 		{
 			"description": "Use the AI chatbot to perform tasks which involve understanding or generating natural language or code.",
-			"url": "index.html?v=husky-background-write-20260630",
+			"url": "index.html?v=husky-excel-no-fit-cell-20260630",
 			"icons": "resources/%theme-type%(light|dark)/icon%scale%(default).%extension%(png)",
 			"isViewer": false,
 			"EditorsSupport": ["word", "cell", "slide", "pdf"],

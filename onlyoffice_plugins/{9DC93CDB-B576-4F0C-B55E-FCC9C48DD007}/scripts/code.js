@@ -1624,10 +1624,14 @@ function huskyFitParagraphsToSelection(paragraphs, selectedCount) {
 async function huskyWriteSelectionText(text, expectedCount, taskId) {
 	try {
 		var parsedParas = huskyParseTranslatedParagraphs(text || "");
-		if (expectedCount > 0) {
+		var isCellEditor = false;
+		try {
+			isCellEditor = Asc && Asc.Editor && typeof Asc.Editor.getType === "function" && Asc.Editor.getType() === "cell";
+		} catch (e) {}
+		if (!isCellEditor && expectedCount > 0) {
 			parsedParas = huskyFitParagraphsToSelection(parsedParas, expectedCount);
 		}
-		Asc.Library.lastSelectionParagraphCount = expectedCount || 0;
+		Asc.Library.lastSelectionParagraphCount = isCellEditor ? parsedParas.length : (expectedCount || 0);
 		await Asc.Library.ReplaceTextSmart(parsedParas);
 		localStorage.setItem("husky_write_result_task", taskId || "");
 		localStorage.setItem("husky_write_result", "ok");

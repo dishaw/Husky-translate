@@ -217,8 +217,13 @@
 
 			function compactDebugText(value) {
 				var text = extractSelectedText(value);
-				text = String(text || "").replace(/\s+/g, " ").trim();
-				if (text.length > 80) text = text.slice(0, 80) + "...";
+				// Show escape sequences visibly so cell/row boundaries are readable in logs.
+				text = String(text || "")
+					.replace(/\r\n/g, "\\r\\n")
+					.replace(/\r/g, "\\r")
+					.replace(/\n/g, "\\n")
+					.replace(/\t/g, "\\t");
+				if (text.length > 300) text = text.slice(0, 300) + "…";
 				return text || "<empty>";
 			}
 
@@ -321,13 +326,24 @@
 				return Math.max(parts.length, 1);
 			}
 
+			function countExpectedWriteParts(value) {
+				if (getPluginInfo().editorType === "cell") {
+					return parseTranslatedParagraphs(value).length;
+				}
+				return countTextParagraphs(value);
+			}
+
 			function getSelectedTextOptions() {
+				// For cell (spreadsheet) editor we must keep real tab characters so
+				// that column boundaries survive into getTranslatePrompt / parseTranslatedParagraphs.
+				// For word/slide we replace tabs with a non-breaking space as before.
+				var isCell = getPluginInfo().editorType === "cell";
 				return {
 					Numbering: false,
 					Math: false,
 					TableCellSeparator: "\n",
 					ParaSeparator: "\n",
-					TabSymbol: String.fromCharCode(160)
+					TabSymbol: isCell ? "\t" : String.fromCharCode(160)
 				};
 			}
 
@@ -492,7 +508,15 @@
 						applySelection(selected);
 					}
 					if (source === "poll") debugPollCounter++;
-					if (source !== "poll" || normalizeText(text) || hasFallback || debugPollCounter % 8 === 0) {
+					// Suppress poll log when both sources are empty — it's just noise.
+					var argHasContent  = !!normalizeText(fallback);
+					var textHasContent = !!normalizeText(text);
+					var shouldLog = source !== "poll"
+						|| argHasContent
+						|| textHasContent
+						|| hasFallback
+						|| debugPollCounter % 30 === 0;   // heartbeat every ~21s
+					if (shouldLog) {
 						setSelectionDebugStatus(source || "selection", fallback, text);
 					}
 				});
@@ -619,7 +643,7 @@
 					localStorage.removeItem("husky_write_result");
 					localStorage.removeItem("husky_write_error");
 					localStorage.setItem("husky_write_text", text || "");
-					localStorage.setItem("husky_write_expected_count", String(countTextParagraphs(selectedText)));
+					localStorage.setItem("husky_write_expected_count", String(countExpectedWriteParts(selectedText)));
 					localStorage.setItem("husky_write_task", taskId);
 					localStorage.setItem("husky_write_ts", String(started));
 				} catch (e) {
