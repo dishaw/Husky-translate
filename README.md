@@ -57,22 +57,7 @@ docker compose logs --tail 40 onlyoffice
 - **语言设置**：`husky_target_language` / `onlyoffice_ai_plugin_translate_lang`
 - **自动翻译**：`husky_auto_translate`（1 = 选中即翻，0 = 手动触发）
 
----
 
-## 开发约定
-
-详见 [`开发宪法.md`](开发宪法.md)，核心原则：
-
-- **先读代码再动手**，确认入口、调用链和已有约定
-- **改动小而准**，只处理当前问题，不顺手重构无关代码
-- **不回滚、不覆盖**他人已有改动
-- 前端为**纯原生 HTML/CSS/JS**，不依赖 Vue/React 等框架
-- 首页必须极致轻量，确保 200ms 内渲染完毕
-
-### 插件开发注意事项
-- 修改 `.js` 后需删除对应的 `.js.gz` 缓存，否则 OnlyOffice 优先用 gz
-- `index.html` 中 JS 引用需加 `?v=` 参数破浏览器缓存
-- 修改后 `docker compose restart onlyoffice` 生效
 
 ---
 
